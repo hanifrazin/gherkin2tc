@@ -13,12 +13,12 @@ Scenario: Successful login
   And I see greeting
 
 @negative
-Scenario Outline: Invalid login
+Scenario Outline: Invalid login "<case>"
   Given I am on login page
   When I input username "<u>"
   And I input password "<p>"
   Then I see an error message
   Examples:
-    | u     | p     |
-    | user1 | wrong |
-    |      | pass  |
+    | case   | u     | p     |
+    | case 1 | user1 | wrong |
+    | case 2 |       | pass  |

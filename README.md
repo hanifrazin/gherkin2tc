@@ -13,15 +13,19 @@ npm install
 ```
 
 ### 4) Guide to Execute Gherkin File
+
+#### execute only one feature file in one folder to CSV or Excel
 ```
-node gherkin2csv.js path/to/file.feature -o out.csv
+node gherkin2tc_multisheet.js features/login.feature -o output/out.csv
 ```
-### or execute all feature file in one folder to CSV
 ```
-node gherkin2csv.js path/to/features/ -o out.csv
+node gherkin2tc_multisheet.js features/login.feature -o output/out.xlsx --xlsx
 ```
 
-### or execute all feature file in one folder to Excel
+#### or execute all feature file in one folder to CSV or Excel
 ```
-node gherkin2csv.js path/to/features -o out.xlsx --xlsx
+node gherkin2tc_multisheet.js features -o output/out.csv
+```
+```
+node gherkin2tc_multisheet.js features -o output/out.xlsx --xlsx
 ```
