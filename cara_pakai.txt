@@ -1,9 +1,0 @@
-# 1) Simpan script di bawah sebagai gherkin2csv.js
-# 2) (Opsional untuk Excel) npm i xlsx
-# 3) Jalankan
-node gherkin2csv.js path/to/file.feature -o out.csv
-# atau proses satu folder
-node gherkin2csv.js path/to/features/ -o out.csv
-
-# (Opsional Excel)
-node gherkin2csv.js path/to/features -o out.xlsx --xlsx
