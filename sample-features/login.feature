@@ -22,3 +22,19 @@ Scenario Outline: Invalid login "<case>"
     | case   | u     | p     |
     | case 1 | user1 | wrong |
     | case 2 |       | pass  |
+
+@negative
+Scenario Outline: Belanja grosir dengan payment "<payment-method>"
+  Given Customer on Belanja page at Bersama Apps
+  When Select product
+  And Select quantity in product
+  And Select type product 
+  And Add to cart
+  And click confirmation payment "<payment-method>"
+  Then Summary will be display total product
+  Examples:
+    | payment-method      |
+    | limit kredit        |
+    | saldo bersama       |
+    | cash                |
+    | cash + limit kredit |

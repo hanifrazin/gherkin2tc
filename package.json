@@ -1,5 +1,28 @@
 {
   "dependencies": {
+    "commander": "^14.0.0",
     "xlsx": "^0.18.5"
-  }
+  },
+  "name": "gherkin2tc",
+  "version": "1.0.0",
+  "description": "- Node.js LTS v22.14.0   - Microsoft Excel - Visual Studio Code",
+  "main": "command.js",
+  "devDependencies": {},
+  "bin": {
+    "gutci": "./cli/command-gutci.js"
+  },
+  "scripts": {
+    "start": "node cli/command-gutci.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hanifrazin/gherkin2tc.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hanifrazin/gherkin2tc/issues"
+  },
+  "homepage": "https://github.com/hanifrazin/gherkin2tc#readme"
 }

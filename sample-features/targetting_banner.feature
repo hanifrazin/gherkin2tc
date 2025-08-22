@@ -2,7 +2,7 @@ Feature: Targeting Banner
   Background:
     Given admin login dan berada di "Pengaturan Banner"
 
-  Scenario Outline: Pratinjau penayangan sesuai segmentasi
+  Scenario Outline: Pratinjau penayangan sesuai segmentasi 
     When admin memilih tipe banner "Grosir"
     And memilih target "<tipe_target>"
     And memilih nilai target "<nilai>"
