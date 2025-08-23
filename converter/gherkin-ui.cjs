@@ -291,16 +291,119 @@ function scenariosToRows(scn) {
 
 /* ---------- XLSX Writer (multi-sheet) ---------- */
 async function writeMultiSheetXlsx(fileRowsMap, outFile) {
+  // ===== Helpers: parsing & formatting =====
+  const toStr = (v) => (v == null ? "" : String(v));
+  const splitAnnotations = (tagStr) => {
+    return toStr(tagStr)
+      .trim()
+      .split(/\s+/)
+      .filter(t => /^@/.test(t)); // hanya token yang diawali '@'
+  };
+  const norm = (s) => s.toLowerCase();
+
+  // klasifikasi anotasi -> { priority, type, extras[] }
+  function classifyAnnotations(tagStr, seed = {}) {
+    const out = {
+      priority: seed.priority || seed.Priority || "",
+      type: seed.type || seed.Type || "",
+      extras: []
+    };
+
+    const tokens = splitAnnotations(tagStr).map(norm);
+    for (const tok of tokens) {
+      if (/^@p[0-3]$/.test(tok)) {
+        // @p0..@p3
+        out.priority = tok.slice(1).toUpperCase(); // "P0"
+        continue;
+      }
+      if (tok === "@positive" || tok === "@negative") {
+        out.type = tok.slice(1); // "positive"/"negative"
+        continue;
+      }
+      // sisanya masuk extras (tetap dengan '@' biar jelas)
+      out.extras.push(tok);
+    }
+    return out;
+  }
+
+  // hitung header dinamis Tag1..TagN untuk satu sheet
+  function computeMaxExtraTags(rows) {
+    let maxN = 0;
+    for (const r of rows) {
+      const { extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
+      if (extras.length > maxN) maxN = extras.length;
+    }
+    return maxN;
+  }
+
+  // autofit kolom + wrap + auto row height (estimasi)
+  function applyStylingAndFit(ws, headers) {
+    // wrap + vertical top untuk semua cell
+    ws.eachRow(row => {
+      row.eachCell(cell => {
+        cell.alignment = { wrapText: true, vertical: 'top' };
+      });
+    });
+
+    // auto width berdasarkan line terpanjang
+    ws.columns.forEach((col, idx) => {
+      let max = headers[idx] ? headers[idx].length : 10;
+      col.eachCell({ includeEmpty: true }, cell => {
+        const val = toStr(cell.value);
+        if (!val) return;
+        const longest = val.split('\n').reduce((m, line) => Math.max(m, line.length), 0);
+        if (longest > max) max = longest;
+      });
+      col.width = Math.min(Math.max(max + 2, 10), 80);
+    });
+
+    // auto height (estimasi) berdasarkan lebar kolom
+    ws.eachRow(row => {
+      let maxLines = 1;
+      row.eachCell(cell => {
+        const val = toStr(cell.value);
+        if (!val) return;
+        const width = ws.getColumn(cell.col).width || 10;
+        const lines = val.split('\n').reduce((sum, line) => {
+          const approxCharsPerLine = Math.max(Math.floor(width), 1);
+          return sum + Math.max(1, Math.ceil(line.length / approxCharsPerLine));
+        }, 0);
+        if (lines > maxLines) maxLines = lines;
+      });
+      row.height = Math.min(15 * maxLines, 220);
+    });
+  }
+
   try {
     const ExcelJS = require('exceljs');
     const wb = new ExcelJS.Workbook();
 
     for (const { sheetName, rows } of fileRowsMap) {
+      // hitung jumlah Tag dinamis untuk sheet ini
+      const maxExtras = computeMaxExtraTags(rows);
+
+      // base headers sesuai urutan ekspektasi
+      const BASE_HEADERS = [
+        'TC_ID',
+        'Feature',
+        'Priority',
+        'Type',
+        'Title',
+        'Precondition (Given)',
+        'Test Steps (When/And)',
+        'Test Data',
+        'Expected Result (Then/And)'
+      ];
+      // tambah Tag1..TagN kalau ada
+      const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag ${i + 1}`);
+      const HEADERS = [...BASE_HEADERS, ...TAG_HEADERS];
+
       const ws = wb.addWorksheet(sheetName, {
         properties: { defaultRowHeight: 18 },
-        pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 } // A4 landscape
+        pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
       });
 
+      // header
       ws.addRow(HEADERS);
       HEADERS.forEach((_, idx) => {
         const c = ws.getRow(1).getCell(idx + 1);
@@ -308,50 +411,105 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         c.alignment = { vertical: 'top', wrapText: true };
       });
 
-      // TC_ID reset per sheet, prefix = nama sheet disederhanakan
+      // TC_ID reset per sheet, prefix = nama sheet, dinormalisasi
+      const prefix = toStr(sheetName).trim().replace(/\s+/g, '_').toUpperCase();
       let counter = 1;
+
+      // tulis row data
       for (const r of rows) {
-        const tcid = `${sheetName.toUpperCase()}-${String(counter).padStart(3, '0')}`;
+        // klasifikasi anotasi dari r.Tags
+        const { priority, type, extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
+
+        const tcid = `${prefix}-${String(counter).padStart(3, '0')}`;
         counter++;
+
+        // siapkan kolom Tag1..TagN
+        const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? extras[i] : '');
+
         ws.addRow([
-          tcid, r.Feature, r.Priority, r.Type, r.Title, r['Precondition (Given)'],
-          r['Test Steps (When/And)'], r['Test Data'], r['Expected Result (Then/And)'], r.Tags
+          tcid,
+          toStr(r.Feature),
+          toStr(priority || r.Priority),
+          toStr(type || r.Type),
+          toStr(r.Title),
+          toStr(r['Precondition (Given)']),
+          toStr(r['Test Steps (When/And)']),
+          toStr(r['Test Data']),
+          toStr(r['Expected Result (Then/And)']),
+          ...extraCols
         ]);
       }
 
-      const widths = [14, 34, 22, 38, 40, 40, 10, 12, 24, 24, 18];
-      widths.forEach((w, i) => ws.getColumn(i + 1).width = w);
-      ws.eachRow({ includeEmpty: false }, row => {
-        row.eachCell(cell => { cell.alignment = { vertical: 'top', wrapText: true }; });
-      });
+      // styling & auto-fit
+      applyStylingAndFit(ws, HEADERS);
     }
 
     await wb.xlsx.writeFile(outFile);
     return true;
+
   } catch (e) {
-    // Fallback ke xlsx (tanpa landscape)
+    // ===== Fallback ke xlsx (tanpa pageSetup landscape) =====
     try {
       const XLSX = require('xlsx');
       const wb = XLSX.utils.book_new();
 
       for (const { sheetName, rows } of fileRowsMap) {
+        const maxExtras = (function computeMaxExtraTags(rows) {
+          let maxN = 0;
+          for (const r of rows) {
+            const { extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
+            if (extras.length > maxN) maxN = extras.length;
+          }
+          return maxN;
+        })(rows);
+
+        const BASE_HEADERS = [
+          'TC_ID',
+          'Feature',
+          'Priority',
+          'Type',
+          'Title',
+          'Precondition (Given)',
+          'Test Steps (When/And)',
+          'Test Data',
+          'Expected Result (Then/And)'
+        ];
+        const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag ${i + 1}`);
+        const HEADERS = [...BASE_HEADERS, ...TAG_HEADERS];
+
         const aoa = [HEADERS];
+
+        const prefix = toStr(sheetName).trim().replace(/\s+/g, '_').toUpperCase();
         let counter = 1;
+
         for (const r of rows) {
-          const tcid = `${sheetName.toUpperCase()}-${String(counter).padStart(3, '0')}`;
+          const { priority, type, extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
+          const tcid = `${prefix}-${String(counter).padStart(3, '0')}`;
           counter++;
+          const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? extras[i] : '');
+
           aoa.push([
-            tcid, r.Feature, r.Priority, r.Type, r.Title, r['Precondition (Given)'],
-            r['Test Steps (When/And)'], r['Test Data'], r['Expected Result (Then/And)'], r.Tags
+            tcid,
+            toStr(r.Feature),
+            toStr(priority || r.Priority),
+            toStr(type || r.Type),
+            toStr(r.Title),
+            toStr(r['Precondition (Given)']),
+            toStr(r['Test Steps (When/And)']),
+            toStr(r['Test Data']),
+            toStr(r['Expected Result (Then/And)']),
+            ...extraCols
           ]);
         }
+
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         XLSX.utils.book_append_sheet(wb, ws, sheetName);
       }
 
       XLSX.writeFile(wb, outFile);
-      console.warn('Note: fallback ke "xlsx"; pengaturan landscape mungkin tidak ikut.');
+      console.warn('Note: fallback ke "xlsx"; pengaturan landscape & autofit tidak sepenuhnya didukung.');
       return true;
+
     } catch (err) {
       console.error('Gagal menulis .xlsx. Install salah satu: "npm i exceljs" (disarankan) atau "npm i xlsx".');
       console.error(err.message);
@@ -359,7 +517,6 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     }
   }
 }
-
 
 
 /* ---------- Main ---------- */
