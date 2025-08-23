@@ -1,31 +1,44 @@
-### Prerequisite
-- Node.js LTS v22.14.0  
-- Microsoft Excel
-- Visual Studio Code
+# gherkin2tc
 
-### 1) Clone this repo to your local
+> Toolkit sederhana untuk QA Manual → membantu konversi **Gherkin <-> Excel** tanpa perlu coding.
 
-### 2) Open the project using VS Code
+## 📦 Fitur Utama
 
-### 3) Open terminal and type
-```
+### 1. GRISE (Gherkin → Excel Test Case)
+CLI untuk mengonversi file `.feature` menjadi `.xlsx`:
+- Input: satu file atau satu folder berisi `.feature`.
+- Output: satu file Excel multi-sheet atau banyak file Excel.
+- Kolom hasil sudah diformat sesuai kebutuhan QA:
+  - `TC_ID`, `Feature`, `Type`, `Priority`, `Title`, `Precondition (Given)`, `Test Steps (When/And)`, `Test Data`, `Expected Result (Then/And)`, `Tag1..TagN` (opsional).
+- Mendukung:
+  - Scenario & Scenario Outline.
+  - Background.
+  - Tag Priority (`@P0..@P3`), Type (`@positive/@negative`), dan anotasi lain.
+  - Format Test Data otomatis bernomor, skip placeholder dari title, isi kosong jadi `"empty (tidak diisi)"`.
+
+👉 **Baca panduan lengkap:** [GUIDE-GRISE.md](./GUIDE-GRISE.md)
+
+---
+
+### 2. PILE (Excel/CSV → Gherkin Pipe Tables)
+CLI untuk mengonversi `.xlsx`/`.csv` menjadi `.feature`:
+- Membaca sheet dan memecah data berdasarkan baris kosong.
+- Output: pipe table `Examples` rapi dengan auto-align.
+- Opsi tambahan:
+  - Whitelist kolom (`--columns`).
+  - Mask kolom sensitif (`--mask`).
+  - Non-header mode (`--no-header`).
+  - Table gap (`--table-gap`).
+- Berguna untuk membuat `Examples:` cepat dari data Excel/CSV.
+
+👉 **Baca panduan lengkap:** [GUIDE-PILE.md](./GUIDE-PILE.md)
+
+---
+
+## 🚀 Instalasi
+
+Clone repo dan install dependencies:
+```bash
+git clone https://github.com/hanifrazin/gherkin2tc.git
+cd gherkin2tc
 npm install
-```
-
-### 4) Guide to Execute Gherkin File
-
-#### execute only one feature file in one folder to CSV or Excel
-```
-node gherkin2tc_multisheet.js features/login.feature -o output/out.csv
-```
-```
-node gherkin2tc_multisheet.js features/login.feature -o output/out.xlsx --xlsx
-```
-
-#### or execute all feature file in one folder to CSV or Excel
-```
-node gherkin2tc_multisheet.js features -o output/out.csv
-```
-```
-node gherkin2tc_multisheet.js features -o output/out.xlsx --xlsx
-```
