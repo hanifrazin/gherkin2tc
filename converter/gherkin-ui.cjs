@@ -233,12 +233,26 @@ const tagsToPriority = (tags) => {
   if (v.includes('@p3') || v.includes('@low')) return 'P3';
   return ''; // kosong jika tidak ada tag priority
 };
+
 const tagsToType = (tags) => {
-  const v = (tags || []).map(x => x.toLowerCase());
-  if (v.includes('@negative')) return 'Negative';
-  if (v.includes('@positive')) return 'Positive';
+  const raw = (tags || []).map((t) => String(t).toLowerCase());
+  if (raw.some((v) => v.includes('@negative') || v === 'negative')) return TYPE_LABELS.negative;
+  if (raw.some((v) => v.includes('@positive') || v === 'positive')) return TYPE_LABELS.positive;
   return ''; // kosong jika tidak ada tag type
 };
+
+function normalizeTag(tag) {
+  const name = String(tag).replace(/^@/, '');
+  return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+}
+
+// Ganti ke "Positif"/"Negatif" kalau ingin Bahasa Indonesia
+const TYPE_LABELS = {
+  positive: 'Positive', // ubah jadi 'Positif' jika mau
+  negative: 'Negative', // ubah jadi 'Negatif' jika mau
+};
+
+const PRIORITY_LABELS = { p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3' };
 
 function scenariosToRows(scn) {
   const baseGivens = (scn.background || [])
@@ -275,7 +289,7 @@ function scenariosToRows(scn) {
       Priority,          // kosong jika tidak ada tag priority
       Type,              // kosong jika tidak ada tag type
       Tags: allTags.join(' '),
-      'Test Data': ex ? Object.entries(ex).map(([k, v]) => `${k}=${v}`).join('; ') : '',
+      'Test Data': ex ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v}`).join('\n') : '',
       Notes: ''
     };
   };
@@ -303,11 +317,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
 
   // klasifikasi anotasi -> { priority, type, extras[] }
   function classifyAnnotations(tagStr, seed = {}) {
-    const out = {
-      priority: seed.priority || seed.Priority || "",
-      type: seed.type || seed.Type || "",
-      extras: []
-    };
+    const out = { priority: seed.priority || seed.Priority || "", type: seed.type || seed.Type || "", extras: [] };
 
     const tokens = splitAnnotations(tagStr).map(norm);
     for (const tok of tokens) {
@@ -317,7 +327,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         continue;
       }
       if (tok === "@positive" || tok === "@negative") {
-        out.type = tok.slice(1); // "positive"/"negative"
+        out.type = TYPE_LABELS[tok.slice(1)]; // "positive"/"negative"
         continue;
       }
       // sisanya masuk extras (tetap dengan '@' biar jelas)
@@ -424,7 +434,11 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         counter++;
 
         // siapkan kolom Tag1..TagN
-        const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? extras[i] : '');
+        // const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? extras[i] : '');
+        const extraCols = Array.from(
+          { length: maxExtras },
+          (_, i) => extras[i] ? normalizeTag(extras[i]) : ''
+        );
 
         ws.addRow([
           tcid,
@@ -486,7 +500,11 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
           const { priority, type, extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
           const tcid = `${prefix}-${String(counter).padStart(3, '0')}`;
           counter++;
-          const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? extras[i] : '');
+          // const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? extras[i] : '');
+          const extraCols = Array.from(
+            { length: maxExtras },
+            (_, i) => extras[i] ? normalizeTag(extras[i]) : ''
+          );
 
           aoa.push([
             tcid,

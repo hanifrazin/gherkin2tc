@@ -23,7 +23,7 @@ Scenario Outline: Invalid login "<case>"
     | case 1 | user1 | wrong |
     | case 2 |       | pass  |
 
-@negative
+@negative @belanja
 Scenario Outline: Belanja grosir dengan payment "<payment-method>"
   Given Customer on Belanja page at Bersama Apps
   When Select product
@@ -39,6 +39,7 @@ Scenario Outline: Belanja grosir dengan payment "<payment-method>"
     | cash                |
     | cash + limit kredit |
 
+@positive @addProducts 
 Scenario: Add new products
   Given the following products are available:
     | code | name   | price |
