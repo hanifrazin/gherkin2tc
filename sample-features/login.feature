@@ -4,8 +4,8 @@ Feature: Login
 Background:
   Given app is installed
 
-@happy @smoke
-Scenario: Successful login
+@happy @smoke 
+Scenario: Successful login "pengguna"
   Given I am on login page
   When I input username "user"
   And I input password "pass"
@@ -23,7 +23,7 @@ Scenario Outline: Invalid login "<case>"
     | case 1 | user1 | wrong |
     | case 2 |       | pass  |
 
-@negative @belanja
+@negative @belanja @payment
 Scenario Outline: Belanja grosir dengan payment "<payment-method>"
   Given Customer on Belanja page at Bersama Apps
   When Select product
@@ -39,7 +39,7 @@ Scenario Outline: Belanja grosir dengan payment "<payment-method>"
     | cash                |
     | cash + limit kredit |
 
-@positive @addProducts 
+@positive @addProducts @list @search
 Scenario: Add new products
   Given the following products are available:
     | code | name   | price |

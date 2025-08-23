@@ -225,6 +225,33 @@ const substitute = (t, ex) =>
 
 const numbered = arr => !arr || arr.length === 0 ? '' : arr.map((s, i) => `${i + 1}. ${s}`).join('\n');
 
+// Format Test Data:
+// - Buang key yang hanya dipakai di judul Scenario/Outline (placeholder <key>)
+// - Jika value kosong → "empty (tidak diisi)"
+function formatTestData(ex, scenarioName) {
+  if (!ex) return '';
+
+  // kumpulkan semua <key> yang muncul di Title
+  const titleKeys = new Set();
+  String(scenarioName || '').replace(/<\s*([^>]+)\s*>/g, (_, k) => {
+    titleKeys.add(k);
+    return _;
+  });
+
+  let n = 0;
+  return Object.entries(ex)
+    .filter(([k]) => !titleKeys.has(k)) // skip yg hanya ada di Title
+    .map(([k, v]) => {
+      const valStr = (v == null || String(v).trim() === '')
+        ? 'empty (tidak diisi)'
+        : String(v);
+      n++;
+      return `${n}. ${k} = ${valStr}`;
+    })
+    .join('\n');
+}
+
+
 const tagsToPriority = (tags) => {
   const v = (tags || []).map(x => x.toLowerCase());
   if (v.includes('@p0') || v.includes('@critical') || v.includes('@blocker')) return 'P0';
@@ -289,7 +316,8 @@ function scenariosToRows(scn) {
       Priority,          // kosong jika tidak ada tag priority
       Type,              // kosong jika tidak ada tag type
       Tags: allTags.join(' '),
-      'Test Data': ex ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v}`).join('\n') : '',
+      'Test Data': formatTestData(ex, scn.name),
+      // 'Test Data': ex ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v}`).join('\n') : '',
       Notes: ''
     };
   };
