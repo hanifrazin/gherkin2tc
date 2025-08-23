@@ -24,8 +24,8 @@ const fs = require('fs');
 const path = require('path');
 
 const HEADERS = [
-  'TC_ID','Title','Feature','Precondition (Given)','Test Steps (When/And)',
-  'Expected Result (Then/And)','Priority','Type','Tags','Test Data','Notes'
+  'TC_ID','Feature','Priority','Type','Title','Precondition (Given)',
+  'Test Steps (When/And)','Test Data','Expected Result (Then/And)','Tags'
 ];
 
 const args = process.argv.slice(2);
@@ -314,9 +314,8 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         const tcid = `${sheetName.toUpperCase()}-${String(counter).padStart(3, '0')}`;
         counter++;
         ws.addRow([
-          tcid, r.Title, r.Feature, r['Precondition (Given)'],
-          r['Test Steps (When/And)'], r['Expected Result (Then/And)'],
-          r.Priority, r.Type, r.Tags, r['Test Data'], r.Notes
+          tcid, r.Feature, r.Priority, r.Type, r.Title, r['Precondition (Given)'],
+          r['Test Steps (When/And)'], r['Test Data'], r['Expected Result (Then/And)'], r.Tags
         ]);
       }
 
@@ -342,9 +341,8 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
           const tcid = `${sheetName.toUpperCase()}-${String(counter).padStart(3, '0')}`;
           counter++;
           aoa.push([
-            tcid, r.Title, r.Feature, r['Precondition (Given)'],
-            r['Test Steps (When/And)'], r['Expected Result (Then/And)'],
-            r.Priority, r.Type, r.Tags, r['Test Data'], r.Notes
+            tcid, r.Feature, r.Priority, r.Type, r.Title, r['Precondition (Given)'],
+            r['Test Steps (When/And)'], r['Test Data'], r['Expected Result (Then/And)'], r.Tags
           ]);
         }
         const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -361,6 +359,8 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     }
   }
 }
+
+
 
 /* ---------- Main ---------- */
 (async () => {
