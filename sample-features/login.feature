@@ -4,7 +4,7 @@ Feature: Login
 Background:
   Given app is installed
 
-@happy @smoke 
+@happy @smoke @positive @P0 @staging @production
 Scenario: Successful login "pengguna"
   Given I am on login page
   When I input username "user"
@@ -12,7 +12,7 @@ Scenario: Successful login "pengguna"
   Then I see dashboard
   And I see greeting
 
-@negative
+@sanity @negative @staging @development
 Scenario Outline: Invalid login "<case>"
   Given I am on login page
   When I input username "<u>"
@@ -23,7 +23,7 @@ Scenario Outline: Invalid login "<case>"
     | case 1 | user1 | wrong |
     | case 2 |       | pass  |
 
-@negative @belanja @payment
+@production @mvp @P0 @negative @belanja @payment @smoke @happy
 Scenario Outline: Belanja grosir dengan payment "<payment-method>"
   Given Customer on Belanja page at Bersama Apps
   When Select product
@@ -39,7 +39,7 @@ Scenario Outline: Belanja grosir dengan payment "<payment-method>"
     | cash                |
     | cash + limit kredit |
 
-@positive @addProducts @list @search
+@positive @addProducts @list @search @smoke @happy
 Scenario: Add new products
   Given the following products are available:
     | code | name   | price |

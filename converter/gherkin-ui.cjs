@@ -24,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 
 const HEADERS = [
-  'TC_ID','Feature','Priority','Type','Title','Precondition (Given)',
+  'TC_ID','Feature','Priority','Type','Scenario','Precondition (Given)',
   'Test Steps (When/And)','Test Data','Expected Result (Then/And)','Tags'
 ];
 
@@ -427,9 +427,9 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
       const BASE_HEADERS = [
         'TC_ID',
         'Feature',
-        'Priority',
         'Type',
-        'Title',
+        'Priority',
+        'Scenario',
         'Precondition (Given)',
         'Test Steps (When/And)',
         'Test Data',
@@ -480,8 +480,8 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         ws.addRow([
           tcid,
           toStr(r.Feature),
-          toStr(priority || r.Priority),
           toStr(type || r.Type),
+          toStr(priority || r.Priority),
           toStr(r.Title),
           toStr(r['Precondition (Given)']),
           toStr(r['Test Steps (When/And)']),
@@ -517,10 +517,10 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         const BASE_HEADERS = [
           'TC_ID',
           'Feature',
-          'Priority',
           'Type',
-          'Title',
-          'Precondition (Given)',
+          'Priority',
+          'Scenario',
+          'Pre-Condition (Given)',
           'Test Steps (When/And)',
           'Test Data',
           'Expected Result (Then/And)'
@@ -552,8 +552,8 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
           aoa.push([
             tcid,
             toStr(r.Feature),
-            toStr(priority || r.Priority),
             toStr(type || r.Type),
+            toStr(priority || r.Priority),
             toStr(r.Title),
             toStr(r['Precondition (Given)']),
             toStr(r['Test Steps (When/And)']),
