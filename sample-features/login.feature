@@ -38,3 +38,16 @@ Scenario Outline: Belanja grosir dengan payment "<payment-method>"
     | saldo bersama       |
     | cash                |
     | cash + limit kredit |
+
+Scenario: Add new products
+  Given the following products are available:
+    | code | name   | price |
+    | P01  | Apple  | 1000  |
+    | P02  | Orange | 2000  |
+  When I search product "P01"
+  Then I should see "Apple" with price 1000
+
+  Examples:
+    | code | name   | price  |
+    | P01  | Apple  | 100000 |
+    | P02  | Orange | 150000 |

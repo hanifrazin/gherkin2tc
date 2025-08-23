@@ -7,10 +7,10 @@ const { execSync } = require("child_process");
 // ========== HELP ==========
 function printHelp() {
   console.log(`
-GUTCI – Gherkin Utility Test Case Interface (CLI Wrapper)
+GRISE – Gherkin UI to Test Case
 
 Usage:
-  gutci -i <input> [-o <output.xlsx>] [--outdir <dir>] [--mode sheet|files] [--overwrite] [--no-timestamp] [-q|--quiet]
+  grise -i <input> [-o <output.xlsx>] [--outdir <dir>] [--mode sheet|files] [--overwrite] [--no-timestamp] [-q|--quiet]
 
 Options:
   -i, --input         Path ke file .feature atau folder berisi .feature (wajib)
@@ -101,7 +101,7 @@ function listFeatures(dir) {
 }
 
 // ========== PATH CONVERTER (naik 1 folder dari cli/) ==========
-const converterPath = path.resolve(__dirname, "..", "converter", "GUTCI.cjs");
+const converterPath = path.resolve(__dirname, "..", "converter", "gherkin-ui.cjs");
 if (!fs.existsSync(converterPath)) {
   console.error(`Error: Tidak menemukan converter di: ${converterPath}`);
   process.exit(1);

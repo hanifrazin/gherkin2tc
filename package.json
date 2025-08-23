@@ -9,7 +9,8 @@
   "main": "command.js",
   "devDependencies": {},
   "bin": {
-    "gutci": "./cli/command-gutci.js"
+    "grise": "./cli/command-grise.js",
+    "pile": "./cli/command-pile.js"
   },
   "scripts": {
     "start": "node cli/command-gutci.js"
