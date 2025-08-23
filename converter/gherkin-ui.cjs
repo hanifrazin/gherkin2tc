@@ -107,6 +107,11 @@ function parseFeatureFile(text, filename) {
       while (i < lines.length) {
         const cur = clean(lines[i]);
         if (!cur || cur.startsWith('#')) { i++; continue; }
+
+        // ⛔️ JANGAN konsumsi baris tag di dalam loop Background.
+        // Biarkan outer loop yang memproses sebagai 'tags' untuk Scenario berikutnya.
+        if (/^\s*@/.test(cur)) break;
+
         if (/^\s*(Scenario(?: Outline)?:|Feature:|Background:|Examples:)/i.test(cur)) break;
 
         if (isStep(cur)) {
@@ -133,6 +138,7 @@ function parseFeatureFile(text, filename) {
       }
       continue;
     }
+
 
     const mSc = ln.match(/^\s*Scenario(?: Outline)?:\s*(.+)$/i);
     if (mSc) {
@@ -286,7 +292,13 @@ function scenariosToRows(scn) {
     .filter(s => (s.keywordBase || '').toLowerCase() === 'given')
     .map(s => s.text);
 
-  const allTags = [...(scn.featureTags || []), ...(scn.tags || [])];
+  // gabungkan semua tag: level feature + level scenario
+  const toStrTag = (t) => (t && t.name) ? t.name : String(t || '');
+  const allTags = [
+    ...(scn.featureTags || []),
+    ...(scn.tags || [])
+  ].map(toStrTag).filter(Boolean);
+
   const Priority = tagsToPriority(allTags);  // HANYA dari tag
   const Type     = tagsToType(allTags);      // HANYA dari tag
 
@@ -335,31 +347,22 @@ function scenariosToRows(scn) {
 async function writeMultiSheetXlsx(fileRowsMap, outFile) {
   // ===== Helpers: parsing & formatting =====
   const toStr = (v) => (v == null ? "" : String(v));
-  const splitAnnotations = (tagStr) => {
-    return toStr(tagStr)
-      .trim()
-      .split(/\s+/)
-      .filter(t => /^@/.test(t)); // hanya token yang diawali '@'
-  };
+  const splitAnnotations = (tagStr) => toStr(tagStr).match(/@\S+/g) || [];
+
   const norm = (s) => s.toLowerCase();
 
   // klasifikasi anotasi -> { priority, type, extras[] }
   function classifyAnnotations(tagStr, seed = {}) {
     const out = { priority: seed.priority || seed.Priority || "", type: seed.type || seed.Type || "", extras: [] };
+    const tokens = splitAnnotations(tagStr).map(s => s.toLowerCase());
 
-    const tokens = splitAnnotations(tagStr).map(norm);
     for (const tok of tokens) {
-      if (/^@p[0-3]$/.test(tok)) {
-        // @p0..@p3
-        out.priority = tok.slice(1).toUpperCase(); // "P0"
-        continue;
-      }
+      if (/^@p[0-3]$/.test(tok)) { out.priority = tok.slice(1).toUpperCase(); continue; }
       if (tok === "@positive" || tok === "@negative") {
-        out.type = TYPE_LABELS[tok.slice(1)]; // "positive"/"negative"
+        out.type = TYPE_LABELS[tok.slice(1)]; // → "Positive"/"Negative"
         continue;
       }
-      // sisanya masuk extras (tetap dengan '@' biar jelas)
-      out.extras.push(tok);
+      out.extras.push(tok); // ← SEMUA tag lain masuk sini
     }
     return out;
   }
@@ -433,7 +436,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         'Expected Result (Then/And)'
       ];
       // tambah Tag1..TagN kalau ada
-      const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag ${i + 1}`);
+      const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag${i + 1}`);
       const HEADERS = [...BASE_HEADERS, ...TAG_HEADERS];
 
       const ws = wb.addWorksheet(sheetName, {
@@ -467,6 +470,12 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
           { length: maxExtras },
           (_, i) => extras[i] ? normalizeTag(extras[i]) : ''
         );
+
+        // >>> taruh debug DI SINI <<<
+        if (/Successful login/.test(String(r.Title))) {
+          console.log('[DEBUG] Tags =', r.Tags);
+          console.log('[DEBUG] classify =', classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type }));
+        }
 
         ws.addRow([
           tcid,
@@ -516,7 +525,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
           'Test Data',
           'Expected Result (Then/And)'
         ];
-        const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag ${i + 1}`);
+        const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag${i + 1}`);
         const HEADERS = [...BASE_HEADERS, ...TAG_HEADERS];
 
         const aoa = [HEADERS];
@@ -533,6 +542,12 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
             { length: maxExtras },
             (_, i) => extras[i] ? normalizeTag(extras[i]) : ''
           );
+
+          // >>> taruh debug DI SINI <<<
+          if (/Successful login/.test(String(r.Title))) {
+            console.log('[DEBUG] Tags =', r.Tags);
+            console.log('[DEBUG] classify =', classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type }));
+          }
 
           aoa.push([
             tcid,
