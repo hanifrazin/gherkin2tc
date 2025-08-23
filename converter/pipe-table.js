@@ -32,6 +32,27 @@ function splitByBlankRows(rows, gap=1){
   return blocks;
 }
 
+function takeLeadingComments(block) {
+  const comments = [];
+  while (block.length) {
+    const row = block[0] || [];
+    const vals = row.filter(v => !isEmpty(v)).map(v => String(v).trim());
+    if (vals.length !== 1) break;
+
+    const v = vals[0];
+    const isHash = v.startsWith('#');
+    const isTicket = /^[A-Z][A-Z0-9]+-\d+$/i.test(v);
+
+    if (isHash || isTicket) {
+      comments.push(isHash ? v : (`# ${v}`));
+      block.shift(); // buang baris ini dari blok agar tidak ikut ke table
+      continue;
+    }
+    break;
+  }
+  return comments;
+}
+
 function toExamples(block, indent=4, columns=null, maskSet=new Set(), noHeader=false){
   if (!block || block.length<2) return null;
 
@@ -122,12 +143,22 @@ program
       outLines.push(`# Sheet: ${sheet}`);
 
       let any = false;
-      for (const b of blocks){
-        // trim leading/trailing empties
+      for (let b of blocks){
+        // trim leading/trailing blank
         while (b.length && (!b[0] || b[0].every(isEmpty))) b.shift();
         while (b.length && (!b[b.length-1] || b[b.length-1].every(isEmpty))) b.pop();
+
+        // 🔸 Ambil baris komentar di awal blok (tidak dikonversi jadi table)
+        const comments = takeLeadingComments(b);
+
         const ex = toExamples(b, indent, columns, maskSet, noHeader);
-        if (ex){ outLines.push(ex); outLines.push(""); any = true; }
+        if (ex){
+          // 🔸 Tulis komentar dulu (jika ada), baru Examples
+          for (const c of comments) outLines.push(c);
+          outLines.push(ex);
+          outLines.push("");
+          any = true;
+        }
       }
       if (!any){ outLines.pop(); } // remove "# Sheet: ..." if no examples
       outLines.push("");
