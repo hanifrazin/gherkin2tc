@@ -113,7 +113,7 @@ if (!isDir) {
 
   if (!output) {
     const filename = noTs ? `${base}.xlsx` : `${base}-${ts()}.xlsx`;
-    output = path.join("output", filename);
+    output = path.join("output-testcase", filename);
   }
   output = ensureXlsx(output);
 
@@ -146,7 +146,7 @@ if (mode === "sheet") {
   const base = path.basename(path.resolve(input));
   if (!output) {
     const filename = noTs ? `${base}.xlsx` : `${base}-${ts()}.xlsx`;
-    output = path.join("output", filename);
+    output = path.join("output-testcase", filename);
   }
   output = ensureXlsx(output);
 

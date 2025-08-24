@@ -11,8 +11,8 @@ program
   .option("-d, --dir <folder>", "proses semua file .xlsx/.csv dalam folder (non-recursive)")
   .option("-r, --recursive", "jika dipakai dengan --dir, scan folder secara rekursif", false)
   .option("--ext <list>", "ekstensi yang diproses, koma-separated (default: xlsx,csv)", "xlsx,csv")
-  // opsi di bawah ini diteruskan ke converter/pipe-table.js
-  .option("--out-dir <dir>", "folder output default (default: output-pipe-tables)")
+  // opsi diteruskan ke converter/pipe-table.js
+  .option("--out-dir <dir>", "folder output default (default: output-piles)")
   .option("--indent <n>", "spasi indent sebelum '|'", "4")
   .option("--columns <cols>", "whitelist kolom (nama atau #index), koma-separated")
   .option("--mask <cols>", "mask kolom sensitif (berdasarkan header yang terseleksi), koma-separated")
@@ -86,9 +86,20 @@ if (files.length === 0) {
 // path ke converter
 const converterPath = path.resolve(__dirname, "../converter/pipe-table.js");
 
+// Tentukan outDir efektif: CLI > default "output-piles"
+const effectiveOutDir = (opts.outDir && String(opts.outDir).trim()) || "output-piles";
+
+// Pastikan folder output ada (dibuat kalau belum)
+try {
+  const absOut = path.resolve(process.cwd(), effectiveOutDir);
+  if (!fs.existsSync(absOut)) fs.mkdirSync(absOut, { recursive: true });
+} catch (e) {
+  console.warn("⚠️  Gagal memastikan folder output, lanjut mencoba di converter:", e.message);
+}
+
 // siapkan opsi yang diteruskan ke converter
 const passThrough = [];
-if (opts.outDir)   passThrough.push("--out-dir", opts.outDir);
+passThrough.push("--out-dir", effectiveOutDir); // selalu pass, agar konsisten defaultnya
 if (opts.indent)   passThrough.push("--indent", String(opts.indent));
 if (opts.columns)  passThrough.push("--columns", opts.columns);
 if (opts.mask)     passThrough.push("--mask", opts.mask);

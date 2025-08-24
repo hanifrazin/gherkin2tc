@@ -108,7 +108,7 @@ program
   .name("gherkin-table")
   .description("Convert Excel/CSV → one .feature (all sheets), with '# Sheet: <name>' and multiple Examples")
   .argument("<file>", "path ke .xlsx/.csv")
-  .option("--out-dir <dir>", "folder output", "output-pipe-tables")
+  .option("--out-dir <dir>", "folder output", "output-piles")
   .option("--indent <n>", "spasi indent sebelum '|'", "4")
   .option("--columns <cols>", "whitelist kolom (nama atau #index), koma-separated")
   .option("--mask <cols>", "mask kolom sensitif (berdasarkan header yang sudah terseleksi), koma-separated")
