@@ -6,13 +6,13 @@
  *        Test Steps (When/And), Test Data, Expected Result (Then/And), Tag1..TagN (dinamis)
  *
  * Dukungan:
- * - Rule: nama + tag + background di level Rule ikut dipakai (opsional; bila tak ada Rule → kolom kosong)
- * - Scenario Outline: expand Examples jadi beberapa test case (substitusi <param>)
- * - Background: gabungan Feature + Rule
+ * - Feature / Background (feature-level)
+ * - Rule (opsional): nama + tag + background (rule-level)
+ * - Scenario / Scenario Outline / Example (Example = alias Scenario tanpa Examples table)
+ * - Scenario Outline: expand Examples → beberapa baris test case (substitusi <param>)
  * - Tag Priority: @P0/@P1/@P2/@P3 (atau @critical/@high/@medium/@low)
- * - Tag Type    : @positive / @negative  (label otomatis jadi "Positive"/"Negative")
- * - Tag lain    : dipecah ke kolom Tag1..TagN (tidak termasuk tag Priority & Type)
- * - Test Steps & Test Data bernomor (1., 2., 3., …)
+ * - Tag Type    : @positive/@negative (auto label 'Positive'/'Negative')
+ * - Tag lain    : ke kolom Tag1..TagN (tidak termasuk Priority & Type)
  */
 
 const fs = require('fs');
@@ -39,7 +39,7 @@ if (!inputPath) {
   process.exit(1);
 }
 
-/* ---------- Helpers (fs) ---------- */
+/* ---------- FS Helpers ---------- */
 function walk(dir) {
   return fs.readdirSync(dir).flatMap(name => {
     const p = path.join(dir, name);
@@ -74,13 +74,16 @@ function extractStep(line, lastBase) {
   return { keyword: kw, keywordBase: base, text: (m[2] || '').trim() };
 }
 
+// AKUI: kita anggap "Example:" (singular) = Scenario
+const RE_SCENARIO_HEAD = /^\s*(Scenario(?: Outline)?:|Example:)\s*(.+)$/i;
+
 function parseFeatureFile(text, filename) {
   const lines = text.split(/\r?\n/);
 
   let feature = '', featureTags = [];
   let featureBackground = [];
 
-  // Konteks Rule (opsional)
+  // konteks Rule
   let currentRule = '';
   let ruleTags = [];
   let ruleBackground = [];
@@ -94,7 +97,7 @@ function parseFeatureFile(text, filename) {
     while (i < lines.length) {
       const cur = clean(lines[i]);
       if (!cur || cur.startsWith('#')) { i++; continue; }
-      if (/^\s*(Scenario(?: Outline)?:|Feature:|Background:|Examples:|Rule:)/i.test(cur)) break;
+      if (/^\s*(Scenario(?: Outline)?:|Example:|Feature:|Background:|Examples:|Rule:)/i.test(cur)) break;
 
       if (isStep(cur)) {
         const st = extractStep(cur, last);
@@ -123,18 +126,20 @@ function parseFeatureFile(text, filename) {
     const ln = clean(lines[i]);
     if (!ln || ln.startsWith('#')) { i++; continue; }
 
+    // Tag menggantung (akan menempel ke entity deklaratif berikutnya)
     if (ln.startsWith('@')) { tags = ln.split(/\s+/).filter(Boolean); i++; continue; }
 
+    // Feature
     if (/^\s*Feature:/i.test(ln)) {
       feature = ln.replace(/^\s*Feature:\s*/i, '').trim();
       if (tags.length) { featureTags = tags.slice(); tags = []; }
-      // reset konteks Rule
       currentRule = '';
       ruleTags = [];
       ruleBackground = [];
       i++; continue;
     }
 
+    // Rule
     if (/^\s*Rule:/i.test(ln)) {
       currentRule = ln.replace(/^\s*Rule:\s*/i, '').trim();
       ruleTags = tags.slice(); // tag menggantung sebelum Rule
@@ -143,6 +148,7 @@ function parseFeatureFile(text, filename) {
       i++; continue;
     }
 
+    // Background (feature-level atau rule-level)
     if (/^\s*Background:/i.test(ln)) {
       i++;
       if (currentRule) parseBackgroundBlock(ruleBackground);
@@ -150,21 +156,29 @@ function parseFeatureFile(text, filename) {
       continue;
     }
 
-    const mSc = ln.match(/^\s*Scenario(?: Outline)?:\s*(.+)$/i);
+    // Scenario / Scenario Outline / Example
+    const mSc = ln.match(RE_SCENARIO_HEAD);
     if (mSc) {
-      const type = ln.includes('Outline') ? 'Scenario Outline' : 'Scenario';
-      const name = mSc[1].trim();
+      const head = mSc[1]; // "Scenario:" | "Scenario Outline:" | "Example:"
+      const name = mSc[2].trim();
+      const isOutline = /Outline/i.test(head);
+      const type = isOutline ? 'Scenario Outline' : 'Scenario'; // Example → Scenario
       const scTags = tags.slice(); tags = [];
       i++;
 
       const steps = [];
-      const examples = [];
+      const examples = []; // hanya terisi kalau Scenario Outline + Examples:
       let last = null;
 
       while (i < lines.length) {
         const cur = clean(lines[i]);
-        if (/^\s*@/.test(cur) || /^\s*Scenario(?: Outline)?:/i.test(cur) ||
-            /^\s*Feature:/i.test(cur) || /^\s*Background:/i.test(cur) || /^\s*Rule:/i.test(cur)) break;
+
+        if (/^\s*@/.test(cur) ||
+            /^\s*Feature:/i.test(cur) ||
+            /^\s*Background:/i.test(cur) ||
+            /^\s*Rule:/i.test(cur) ||
+            RE_SCENARIO_HEAD.test(cur)) break;
+
         if (!cur || cur.startsWith('#')) { i++; continue; }
 
         if (/^\s*Examples:/i.test(cur)) {
@@ -198,6 +212,7 @@ function parseFeatureFile(text, filename) {
           i++; continue;
         }
 
+        // table/docstring pada step
         if (/^\s*\|.*\|\s*$/.test(cur) && steps.length) {
           steps[steps.length - 1].text += '\n' + cur.trim();
           i++; continue;
@@ -214,6 +229,7 @@ function parseFeatureFile(text, filename) {
         i++;
       }
 
+      // gabung tags & background
       const effectiveTags = [...(featureTags || []), ...(ruleTags || []), ...(scTags || [])];
       const effectiveBackground = [...(featureBackground || []), ...(ruleBackground || [])];
 
@@ -224,7 +240,7 @@ function parseFeatureFile(text, filename) {
         ruleName: currentRule || '',
         ruleTags: ruleTags.slice(),
         tags: scTags,
-        type,
+        type, // 'Scenario' atau 'Scenario Outline' (Example → 'Scenario')
         name,
         background: effectiveBackground,
         steps,
@@ -245,11 +261,7 @@ const substitute = (t, ex) =>
 
 const numbered = arr => !arr || arr.length === 0 ? '' : arr.map((s, i) => `${i + 1}. ${s}`).join('\n');
 
-const TYPE_LABELS = {
-  positive: 'Positive',
-  negative: 'Negative',
-};
-
+const TYPE_LABELS = { positive: 'Positive', negative: 'Negative' };
 const PRIORITY_LABELS = { p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3' };
 
 const tagsToPriority = (tags) => {
@@ -285,6 +297,7 @@ function scenariosToRows(scn) {
     const giv = [...baseGivens], wh = [], th = [];
     let mode = null;
     (scn.steps || []).forEach(st => {
+      // NOTE: Example (alias Scenario) tidak punya ex; Outline pakai ex pengganti placeholder
       const txt = substitute(st.text, ex);
       const base = (st.keywordBase || '').toLowerCase();
       if (base === 'given') { mode = 'given'; giv.push(txt); }
@@ -297,9 +310,14 @@ function scenariosToRows(scn) {
       }
     });
 
-    // SATU string tags dengan pemisah SPASI (bukan koma)
+    // Tags (spasi, bukan koma) agar classifier extras berjalan benar
     const toStrTag = (t) => (t && t.name) ? t.name : String(t || '');
     const allTagsStr = allTagsArr.map(toStrTag).filter(Boolean).join(' ');
+
+    // Test Data: hanya jika ex ada (Scenario Outline). Example/Scenario → kosong.
+    const testData = ex
+      ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v || '(empty)'}`).join('\n')
+      : '';
 
     return {
       Feature: scn.feature || '',
@@ -309,7 +327,7 @@ function scenariosToRows(scn) {
       Title: substitute(scn.name, ex),
       'Precondition (Given)': numbered(giv),
       'Test Steps (When/And)': numbered(wh),
-      'Test Data': ex ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v}`).join('\n') : '',
+      'Test Data': testData,
       'Expected Result (Then/And)': numbered(th),
       Tags: allTagsStr,
       Notes: ''
@@ -320,16 +338,16 @@ function scenariosToRows(scn) {
   if (scn.type === 'Scenario Outline' && (scn.examples || []).length) {
     for (const ex of scn.examples) rows.push(build(ex));
   } else {
-    rows.push(build(null));
+    rows.push(build(null)); // Scenario atau Example (alias Scenario)
   }
   return rows;
 }
 
 /* ---------- XLSX Writer (multi-sheet) ---------- */
 async function writeMultiSheetXlsx(fileRowsMap, outFile) {
-  // Helpers
   const toStr = (v) => (v == null ? "" : String(v));
 
+  // Tag classifier: priority/type + extras -> Tag1..N
   const splitAnnotations = (tagStr) => {
     return toStr(tagStr)
       .trim()
@@ -344,17 +362,10 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
       type: seed.type || seed.Type || "",
       extras: []
     };
-
     const tokens = splitAnnotations(tagStr).map(norm);
     for (const tok of tokens) {
-      if (/^@p[0-3]$/.test(tok)) {
-        out.priority = tok.slice(1).toUpperCase();
-        continue;
-      }
-      if (tok === "@positive" || tok === "@negative") {
-        out.type = TYPE_LABELS[tok.slice(1)];
-        continue;
-      }
+      if (/^@p[0-3]$/.test(tok)) { out.priority = tok.slice(1).toUpperCase(); continue; }
+      if (tok === "@positive" || tok === "@negative") { out.type = TYPE_LABELS[tok.slice(1)]; continue; }
       out.extras.push(tok);
     }
     return out;
@@ -528,7 +539,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
       return true;
 
     } catch (err) {
-      console.error('Gagal menulis .xlsx. Install salah satu: "npm i exceljs" (disarankan) atau "npm i xlsx".');
+      console.error('Gagal menulis .xlsx. Install "exceljs" (disarankan) atau "xlsx".');
       console.error(err.message);
       return false;
     }
