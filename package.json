@@ -17,6 +17,11 @@
     "type": "git",
     "url": "git+https://github.com/hanifrazin/gherkin2tc.git"
   },
+  "scripts": {
+    "download": "node download-sheet.cjs --cred ./credentials.json --sheet",
+    "pile": "pile -i", 
+    "flow": "node flow.cjs --"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
