@@ -1,39 +1,29 @@
 #!/usr/bin/env node
 /**
- * gherkin2tc_multisheet.js
+ * gherkin-ui.cjs
  * Convert Gherkin (.feature) → 1 file Excel (.xlsx) dengan 1 sheet per file .feature
- * Kolom sesuai mapping:
- *   TC_ID, Title, Feature, Precondition (Given), Test Steps (When/And),
- *   Expected Result (Then/And), Priority, Type, Tags, Test Data, Notes
+ * Kolom: TC_ID, Feature, Type, Priority, Rule, Title, Precondition (Given),
+ *        Test Steps (When/And), Test Data, Expected Result (Then/And), Tag1..TagN (dinamis)
  *
- * Aturan:
- * - Scenario Outline: expand setiap baris Examples → 1 baris test case (substitusi <param>)
- * - Background + Given → Precondition (Given)
- * - And/But mengikuti keyword sebelumnya (Given/When/Then)
- * - Priority / Type HANYA dari TAG:
- *     Priority: @P0/@P1/@P2/@P3 (atau @critical/@high/@medium/@low)
- *     Type: @positive / @negative
- *   Jika tidak ada tag di Feature/Scenario → Priority & Type dikosongkan
- * - XLSX: exceljs (landscape, wrap, width). Jika exceljs tidak ada, fallback ke xlsx (tanpa landscape).
- *
- * Usage:
- *   node gherkin2tc_multisheet.js <file.feature|dir> -o out.xlsx --xlsx
+ * Dukungan:
+ * - Rule: nama + tag + background di level Rule ikut dipakai (opsional; bila tak ada Rule → kolom kosong)
+ * - Scenario Outline: expand Examples jadi beberapa test case (substitusi <param>)
+ * - Background: gabungan Feature + Rule
+ * - Tag Priority: @P0/@P1/@P2/@P3 (atau @critical/@high/@medium/@low)
+ * - Tag Type    : @positive / @negative  (label otomatis jadi "Positive"/"Negative")
+ * - Tag lain    : dipecah ke kolom Tag1..TagN (tidak termasuk tag Priority & Type)
+ * - Test Steps & Test Data bernomor (1., 2., 3., …)
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const HEADERS = [
-  'TC_ID','Feature','Priority','Type','Scenario','Precondition (Given)',
-  'Test Steps (When/And)','Test Data','Expected Result (Then/And)','Tags'
-];
-
+/* ---------- CLI ---------- */
 const args = process.argv.slice(2);
 if (args.length === 0) {
-  console.error('Usage: node gherkin2tc_multisheet.js <file.feature|dir> -o <out.xlsx> [--xlsx]');
+  console.error('Usage: node gherkin-ui.cjs <file.feature|dir> -o <out.xlsx> [--xlsx]');
   process.exit(1);
 }
-
 let inputPath = null;
 let outPath = 'testcases.xlsx';
 let forceXlsx = false;
@@ -49,7 +39,7 @@ if (!inputPath) {
   process.exit(1);
 }
 
-/* ---------- Utilities ---------- */
+/* ---------- Helpers (fs) ---------- */
 function walk(dir) {
   return fs.readdirSync(dir).flatMap(name => {
     const p = path.join(dir, name);
@@ -67,12 +57,15 @@ function readAllFeatures(input) {
   }
   return files.map(f => ({ file: f, content: fs.readFileSync(f, 'utf8') }));
 }
+
+/* ---------- Text helpers ---------- */
 const STEP_KW = ['Given','When','Then','And','But'];
 const kwRe = /^\s*(Given|When|Then|And|But)\b\s*(.*)$/i;
 const clean = s => (s.includes(' #') ? s.slice(0, s.indexOf(' #')) : s).trim();
 const isStep = l => STEP_KW.some(k => new RegExp(`^\\s*${k}\\b`).test(l));
 const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 
+/* ---------- Parsing ---------- */
 function extractStep(line, lastBase) {
   const m = line.match(kwRe);
   if (!m) return { keyword: '', keywordBase: lastBase || 'Given', text: line.trim() };
@@ -81,13 +74,50 @@ function extractStep(line, lastBase) {
   return { keyword: kw, keywordBase: base, text: (m[2] || '').trim() };
 }
 
-/* ---------- Parser ---------- */
 function parseFeatureFile(text, filename) {
   const lines = text.split(/\r?\n/);
-  let feature = '', featureTags = [], background = [];
+
+  let feature = '', featureTags = [];
+  let featureBackground = [];
+
+  // Konteks Rule (opsional)
+  let currentRule = '';
+  let ruleTags = [];
+  let ruleBackground = [];
+
   const scenarios = [];
   let tags = [];
   let i = 0;
+
+  function parseBackgroundBlock(targetArr) {
+    let last = null;
+    while (i < lines.length) {
+      const cur = clean(lines[i]);
+      if (!cur || cur.startsWith('#')) { i++; continue; }
+      if (/^\s*(Scenario(?: Outline)?:|Feature:|Background:|Examples:|Rule:)/i.test(cur)) break;
+
+      if (isStep(cur)) {
+        const st = extractStep(cur, last);
+        last = st.keywordBase;
+        targetArr.push(st);
+        i++; continue;
+      }
+
+      if (/^\s*\|.*\|\s*$/.test(cur) && targetArr.length) {
+        targetArr[targetArr.length - 1].text += '\n' + cur.trim();
+        i++; continue;
+      }
+      if (/^\s*"""/.test(cur) && targetArr.length) {
+        const buf = [];
+        i++;
+        while (i < lines.length && !/^\s*"""/.test(lines[i])) { buf.push(lines[i]); i++; }
+        if (i < lines.length) i++;
+        targetArr[targetArr.length - 1].text += '\n' + buf.join('\n');
+        continue;
+      }
+      i++;
+    }
+  }
 
   while (i < lines.length) {
     const ln = clean(lines[i]);
@@ -98,47 +128,27 @@ function parseFeatureFile(text, filename) {
     if (/^\s*Feature:/i.test(ln)) {
       feature = ln.replace(/^\s*Feature:\s*/i, '').trim();
       if (tags.length) { featureTags = tags.slice(); tags = []; }
+      // reset konteks Rule
+      currentRule = '';
+      ruleTags = [];
+      ruleBackground = [];
+      i++; continue;
+    }
+
+    if (/^\s*Rule:/i.test(ln)) {
+      currentRule = ln.replace(/^\s*Rule:\s*/i, '').trim();
+      ruleTags = tags.slice(); // tag menggantung sebelum Rule
+      tags = [];
+      ruleBackground = [];
       i++; continue;
     }
 
     if (/^\s*Background:/i.test(ln)) {
       i++;
-      let last = null;
-      while (i < lines.length) {
-        const cur = clean(lines[i]);
-        if (!cur || cur.startsWith('#')) { i++; continue; }
-
-        // ⛔️ JANGAN konsumsi baris tag di dalam loop Background.
-        // Biarkan outer loop yang memproses sebagai 'tags' untuk Scenario berikutnya.
-        if (/^\s*@/.test(cur)) break;
-
-        if (/^\s*(Scenario(?: Outline)?:|Feature:|Background:|Examples:)/i.test(cur)) break;
-
-        if (isStep(cur)) {
-          const st = extractStep(cur, last);
-          last = st.keywordBase;
-          background.push(st);
-          i++; continue;
-        }
-
-        // Data table / docstring (tambahkan ke step sebelumnya)
-        if (/^\s*\|.*\|\s*$/.test(cur) && background.length) {
-          background[background.length - 1].text += '\n' + cur.trim();
-          i++; continue;
-        }
-        if (/^\s*"""/.test(cur) && background.length) {
-          const buf = [];
-          i++;
-          while (i < lines.length && !/^\s*"""/.test(lines[i])) { buf.push(lines[i]); i++; }
-          if (i < lines.length) i++; // closing """
-          background[background.length - 1].text += '\n' + buf.join('\n');
-          continue;
-        }
-        i++;
-      }
+      if (currentRule) parseBackgroundBlock(ruleBackground);
+      else parseBackgroundBlock(featureBackground);
       continue;
     }
-
 
     const mSc = ln.match(/^\s*Scenario(?: Outline)?:\s*(.+)$/i);
     if (mSc) {
@@ -148,13 +158,13 @@ function parseFeatureFile(text, filename) {
       i++;
 
       const steps = [];
-      const examples = []; // flat: gabungkan semua Examples block
+      const examples = [];
       let last = null;
 
       while (i < lines.length) {
         const cur = clean(lines[i]);
-
-        if (/^\s*@/.test(cur) || /^\s*Scenario(?: Outline)?:/i.test(cur) || /^\s*Feature:/i.test(cur) || /^\s*Background:/i.test(cur)) break;
+        if (/^\s*@/.test(cur) || /^\s*Scenario(?: Outline)?:/i.test(cur) ||
+            /^\s*Feature:/i.test(cur) || /^\s*Background:/i.test(cur) || /^\s*Rule:/i.test(cur)) break;
         if (!cur || cur.startsWith('#')) { i++; continue; }
 
         if (/^\s*Examples:/i.test(cur)) {
@@ -188,7 +198,6 @@ function parseFeatureFile(text, filename) {
           i++; continue;
         }
 
-        // step table / docstring
         if (/^\s*\|.*\|\s*$/.test(cur) && steps.length) {
           steps[steps.length - 1].text += '\n' + cur.trim();
           i++; continue;
@@ -197,7 +206,7 @@ function parseFeatureFile(text, filename) {
           const buf = [];
           i++;
           while (i < lines.length && !/^\s*"""/.test(lines[i])) { buf.push(lines[i]); i++; }
-          if (i < lines.length) i++; // closing """
+          if (i < lines.length) i++;
           steps[steps.length - 1].text += '\n' + buf.join('\n');
           continue;
         }
@@ -205,14 +214,19 @@ function parseFeatureFile(text, filename) {
         i++;
       }
 
+      const effectiveTags = [...(featureTags || []), ...(ruleTags || []), ...(scTags || [])];
+      const effectiveBackground = [...(featureBackground || []), ...(ruleBackground || [])];
+
       scenarios.push({
         file: filename,
         feature,
         featureTags,
+        ruleName: currentRule || '',
+        ruleTags: ruleTags.slice(),
         tags: scTags,
         type,
         name,
-        background: background.slice(),
+        background: effectiveBackground,
         steps,
         examples
       });
@@ -231,76 +245,41 @@ const substitute = (t, ex) =>
 
 const numbered = arr => !arr || arr.length === 0 ? '' : arr.map((s, i) => `${i + 1}. ${s}`).join('\n');
 
-// Format Test Data:
-// - Buang key yang hanya dipakai di judul Scenario/Outline (placeholder <key>)
-// - Jika value kosong → "empty (tidak diisi)"
-function formatTestData(ex, scenarioName) {
-  if (!ex) return '';
+const TYPE_LABELS = {
+  positive: 'Positive',
+  negative: 'Negative',
+};
 
-  // kumpulkan semua <key> yang muncul di Title
-  const titleKeys = new Set();
-  String(scenarioName || '').replace(/<\s*([^>]+)\s*>/g, (_, k) => {
-    titleKeys.add(k);
-    return _;
-  });
-
-  let n = 0;
-  return Object.entries(ex)
-    .filter(([k]) => !titleKeys.has(k)) // skip yg hanya ada di Title
-    .map(([k, v]) => {
-      const valStr = (v == null || String(v).trim() === '')
-        ? 'empty (tidak diisi)'
-        : String(v);
-      n++;
-      return `${n}. ${k} = ${valStr}`;
-    })
-    .join('\n');
-}
-
+const PRIORITY_LABELS = { p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3' };
 
 const tagsToPriority = (tags) => {
-  const v = (tags || []).map(x => x.toLowerCase());
+  const v = (tags || []).map(x => String(x).toLowerCase());
   if (v.includes('@p0') || v.includes('@critical') || v.includes('@blocker')) return 'P0';
   if (v.includes('@p1') || v.includes('@high')) return 'P1';
   if (v.includes('@p2') || v.includes('@medium')) return 'P2';
   if (v.includes('@p3') || v.includes('@low')) return 'P3';
-  return ''; // kosong jika tidak ada tag priority
+  return '';
 };
-
 const tagsToType = (tags) => {
   const raw = (tags || []).map((t) => String(t).toLowerCase());
   if (raw.some((v) => v.includes('@negative') || v === 'negative')) return TYPE_LABELS.negative;
   if (raw.some((v) => v.includes('@positive') || v === 'positive')) return TYPE_LABELS.positive;
-  return ''; // kosong jika tidak ada tag type
+  return '';
 };
-
 function normalizeTag(tag) {
   const name = String(tag).replace(/^@/, '');
   return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
 }
-
-// Ganti ke "Positif"/"Negatif" kalau ingin Bahasa Indonesia
-const TYPE_LABELS = {
-  positive: 'Positive', // ubah jadi 'Positif' jika mau
-  negative: 'Negative', // ubah jadi 'Negatif' jika mau
-};
-
-const PRIORITY_LABELS = { p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3' };
 
 function scenariosToRows(scn) {
   const baseGivens = (scn.background || [])
     .filter(s => (s.keywordBase || '').toLowerCase() === 'given')
     .map(s => s.text);
 
-  // gabungkan semua tag: level feature + level scenario
-  const toStrTag = (t) => (t && t.name) ? t.name : String(t || '');
-  const allTags = [
-    ...(scn.featureTags || []),
-    ...(scn.tags || [])
-  ].map(toStrTag).filter(Boolean);
-
-  const Priority = tagsToPriority(allTags);  // HANYA dari tag
-  const Type     = tagsToType(allTags);      // HANYA dari tag
+  // Tag gabungan Feature + Rule + Scenario
+  const allTagsArr = [...(scn.featureTags || []), ...(scn.ruleTags || []), ...(scn.tags || [])];
+  const Priority = tagsToPriority(allTagsArr);
+  const Type     = tagsToType(allTagsArr);
 
   const build = (ex) => {
     const giv = [...baseGivens], wh = [], th = [];
@@ -318,18 +297,21 @@ function scenariosToRows(scn) {
       }
     });
 
+    // SATU string tags dengan pemisah SPASI (bukan koma)
+    const toStrTag = (t) => (t && t.name) ? t.name : String(t || '');
+    const allTagsStr = allTagsArr.map(toStrTag).filter(Boolean).join(' ');
+
     return {
-      // TC_ID diisi saat tulis ke sheet (agar reset per-sheet)
-      Title: substitute(scn.name, ex),
       Feature: scn.feature || '',
+      Rule: scn.ruleName || '',
+      Type,
+      Priority,
+      Title: substitute(scn.name, ex),
       'Precondition (Given)': numbered(giv),
       'Test Steps (When/And)': numbered(wh),
+      'Test Data': ex ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v}`).join('\n') : '',
       'Expected Result (Then/And)': numbered(th),
-      Priority,          // kosong jika tidak ada tag priority
-      Type,              // kosong jika tidak ada tag type
-      Tags: allTags.join(' '),
-      'Test Data': formatTestData(ex, scn.name),
-      // 'Test Data': ex ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v}`).join('\n') : '',
+      Tags: allTagsStr,
       Notes: ''
     };
   };
@@ -345,29 +327,39 @@ function scenariosToRows(scn) {
 
 /* ---------- XLSX Writer (multi-sheet) ---------- */
 async function writeMultiSheetXlsx(fileRowsMap, outFile) {
-  // ===== Helpers: parsing & formatting =====
+  // Helpers
   const toStr = (v) => (v == null ? "" : String(v));
-  const splitAnnotations = (tagStr) => toStr(tagStr).match(/@\S+/g) || [];
 
+  const splitAnnotations = (tagStr) => {
+    return toStr(tagStr)
+      .trim()
+      .split(/\s+/)
+      .filter(t => /^@/.test(t));
+  };
   const norm = (s) => s.toLowerCase();
 
-  // klasifikasi anotasi -> { priority, type, extras[] }
   function classifyAnnotations(tagStr, seed = {}) {
-    const out = { priority: seed.priority || seed.Priority || "", type: seed.type || seed.Type || "", extras: [] };
-    const tokens = splitAnnotations(tagStr).map(s => s.toLowerCase());
+    const out = {
+      priority: seed.priority || seed.Priority || "",
+      type: seed.type || seed.Type || "",
+      extras: []
+    };
 
+    const tokens = splitAnnotations(tagStr).map(norm);
     for (const tok of tokens) {
-      if (/^@p[0-3]$/.test(tok)) { out.priority = tok.slice(1).toUpperCase(); continue; }
-      if (tok === "@positive" || tok === "@negative") {
-        out.type = TYPE_LABELS[tok.slice(1)]; // → "Positive"/"Negative"
+      if (/^@p[0-3]$/.test(tok)) {
+        out.priority = tok.slice(1).toUpperCase();
         continue;
       }
-      out.extras.push(tok); // ← SEMUA tag lain masuk sini
+      if (tok === "@positive" || tok === "@negative") {
+        out.type = TYPE_LABELS[tok.slice(1)];
+        continue;
+      }
+      out.extras.push(tok);
     }
     return out;
   }
 
-  // hitung header dinamis Tag1..TagN untuk satu sheet
   function computeMaxExtraTags(rows) {
     let maxN = 0;
     for (const r of rows) {
@@ -377,16 +369,12 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     return maxN;
   }
 
-  // autofit kolom + wrap + auto row height (estimasi)
   function applyStylingAndFit(ws, headers) {
-    // wrap + vertical top untuk semua cell
     ws.eachRow(row => {
       row.eachCell(cell => {
         cell.alignment = { wrapText: true, vertical: 'top' };
       });
     });
-
-    // auto width berdasarkan line terpanjang
     ws.columns.forEach((col, idx) => {
       let max = headers[idx] ? headers[idx].length : 10;
       col.eachCell({ includeEmpty: true }, cell => {
@@ -397,8 +385,6 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
       });
       col.width = Math.min(Math.max(max + 2, 10), 80);
     });
-
-    // auto height (estimasi) berdasarkan lebar kolom
     ws.eachRow(row => {
       let maxLines = 1;
       row.eachCell(cell => {
@@ -420,23 +406,21 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     const wb = new ExcelJS.Workbook();
 
     for (const { sheetName, rows } of fileRowsMap) {
-      // hitung jumlah Tag dinamis untuk sheet ini
       const maxExtras = computeMaxExtraTags(rows);
 
-      // base headers sesuai urutan ekspektasi
       const BASE_HEADERS = [
         'TC_ID',
         'Feature',
         'Type',
         'Priority',
-        'Scenario',
+        'Rule',
+        'Title',
         'Precondition (Given)',
         'Test Steps (When/And)',
         'Test Data',
         'Expected Result (Then/And)'
       ];
-      // tambah Tag1..TagN kalau ada
-      const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag${i + 1}`);
+      const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag ${i + 1}`);
       const HEADERS = [...BASE_HEADERS, ...TAG_HEADERS];
 
       const ws = wb.addWorksheet(sheetName, {
@@ -444,7 +428,6 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
       });
 
-      // header
       ws.addRow(HEADERS);
       HEADERS.forEach((_, idx) => {
         const c = ws.getRow(1).getCell(idx + 1);
@@ -452,36 +435,20 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         c.alignment = { vertical: 'top', wrapText: true };
       });
 
-      // TC_ID reset per sheet, prefix = nama sheet, dinormalisasi
-      const prefix = toStr(sheetName).trim().replace(/\s+/g, '_').toUpperCase();
+      const prefix = String(sheetName).trim().replace(/\s+/g, '_').toUpperCase();
       let counter = 1;
 
-      // tulis row data
       for (const r of rows) {
-        // klasifikasi anotasi dari r.Tags
         const { priority, type, extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
-
-        const tcid = `${prefix}-${String(counter).padStart(3, '0')}`;
-        counter++;
-
-        // siapkan kolom Tag1..TagN
-        // const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? extras[i] : '');
-        const extraCols = Array.from(
-          { length: maxExtras },
-          (_, i) => extras[i] ? normalizeTag(extras[i]) : ''
-        );
-
-        // >>> taruh debug DI SINI <<<
-        if (/Successful login/.test(String(r.Title))) {
-          console.log('[DEBUG] Tags =', r.Tags);
-          console.log('[DEBUG] classify =', classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type }));
-        }
+        const tcid = `${prefix}-${String(counter).padStart(3, '0')}`; counter++;
+        const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? normalizeTag(extras[i]) : '');
 
         ws.addRow([
           tcid,
           toStr(r.Feature),
           toStr(type || r.Type),
           toStr(priority || r.Priority),
+          toStr(r.Rule),
           toStr(r.Title),
           toStr(r['Precondition (Given)']),
           toStr(r['Test Steps (When/And)']),
@@ -491,7 +458,6 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         ]);
       }
 
-      // styling & auto-fit
       applyStylingAndFit(ws, HEADERS);
     }
 
@@ -499,7 +465,6 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     return true;
 
   } catch (e) {
-    // ===== Fallback ke xlsx (tanpa pageSetup landscape) =====
     try {
       const XLSX = require('xlsx');
       const wb = XLSX.utils.book_new();
@@ -519,41 +484,32 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
           'Feature',
           'Type',
           'Priority',
-          'Scenario',
-          'Pre-Condition (Given)',
+          'Rule',
+          'Title',
+          'Precondition (Given)',
           'Test Steps (When/And)',
           'Test Data',
           'Expected Result (Then/And)'
         ];
-        const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag${i + 1}`);
+        const TAG_HEADERS = Array.from({ length: maxExtras }, (_, i) => `Tag ${i + 1}`);
         const HEADERS = [...BASE_HEADERS, ...TAG_HEADERS];
 
         const aoa = [HEADERS];
 
-        const prefix = toStr(sheetName).trim().replace(/\s+/g, '_').toUpperCase();
+        const prefix = String(sheetName).trim().replace(/\s+/g, '_').toUpperCase();
         let counter = 1;
 
         for (const r of rows) {
           const { priority, type, extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
-          const tcid = `${prefix}-${String(counter).padStart(3, '0')}`;
-          counter++;
-          // const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? extras[i] : '');
-          const extraCols = Array.from(
-            { length: maxExtras },
-            (_, i) => extras[i] ? normalizeTag(extras[i]) : ''
-          );
-
-          // >>> taruh debug DI SINI <<<
-          if (/Successful login/.test(String(r.Title))) {
-            console.log('[DEBUG] Tags =', r.Tags);
-            console.log('[DEBUG] classify =', classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type }));
-          }
+          const tcid = `${prefix}-${String(counter).padStart(3, '0')}`; counter++;
+          const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? normalizeTag(extras[i]) : '');
 
           aoa.push([
             tcid,
             toStr(r.Feature),
             toStr(type || r.Type),
             toStr(priority || r.Priority),
+            toStr(r.Rule),
             toStr(r.Title),
             toStr(r['Precondition (Given)']),
             toStr(r['Test Steps (When/And)']),
@@ -568,7 +524,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
       }
 
       XLSX.writeFile(wb, outFile);
-      console.warn('Note: fallback ke "xlsx"; pengaturan landscape & autofit tidak sepenuhnya didukung.');
+      console.warn('Note: fallback ke "xlsx"; landscape & autofit terbatas.');
       return true;
 
     } catch (err) {
@@ -579,7 +535,6 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
   }
 }
 
-
 /* ---------- Main ---------- */
 (async () => {
   const inputs = readAllFeatures(inputPath);
@@ -588,7 +543,6 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     process.exit(1);
   }
 
-  // Kumpulkan rows per file → sheetName
   const fileRowsMap = [];
   const usedNames = new Set();
 
@@ -598,7 +552,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     let rows = [];
     for (const scn of scenarios) rows = rows.concat(scenariosToRows(scn));
 
-    // Nama sheet dari nama file (tanpa .feature), aman untuk Excel (<=31 char, unik)
+    // Nama sheet dari nama file (<=31 char, unik)
     let base = path.basename(file, '.feature').replace(/[^A-Za-z0-9_\-]+/g, '_');
     if (!base) base = 'Sheet';
     if (base.length > 31) base = base.slice(0, 31);

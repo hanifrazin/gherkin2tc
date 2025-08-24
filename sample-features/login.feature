@@ -52,3 +52,15 @@ Scenario: Add new products
     | code | name   | price  |
     | P01  | Apple  | 100000 |
     | P02  | Orange | 150000 |
+
+  Rule: Successful login
+    Scenario: Valid username and password
+      Given I am on the login page
+      When I input valid credentials
+      Then I see the dashboard
+
+  Rule: Invalid login
+    Scenario: Wrong password
+      Given I am on the login page
+      When I input invalid password
+      Then I see an error message
