@@ -1,19 +1,17 @@
 {
   "dependencies": {
     "commander": "^14.0.0",
+    "exceljs": "^4.4.0",
+    "googleapis": "^157.0.0",
     "xlsx": "^0.18.5"
   },
   "name": "gherkin2tc",
   "version": "1.0.0",
   "description": "- Node.js LTS v22.14.0   - Microsoft Excel - Visual Studio Code",
   "main": "command.js",
-  "devDependencies": {},
   "bin": {
     "grise": "./cli/command-grise.js",
     "pile": "./cli/command-pile.js"
-  },
-  "scripts": {
-    "start": "node cli/command-gutci.js"
   },
   "repository": {
     "type": "git",

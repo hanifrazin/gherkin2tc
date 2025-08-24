@@ -138,5 +138,10 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+bersama-tc
 bersama-tc/**
 **/output*/
+credentials.json
+data-test
+archive-credentials
+archive-credentials/**
