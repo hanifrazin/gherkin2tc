@@ -46,25 +46,34 @@ Scenario: Add new products
     | P01  | Apple  | 1000  |
     | P02  | Orange | 2000  |
   When I search product "P01"
+    | code | name   | price |
+    | P01  | Apple  | 1000  |
+    | P02  | Orange | 2000  |
   Then I should see "Apple" with price 1000
+    | code | name   | price |
+    | P01  | Apple  | 1000  |
+    | P02  | Orange | 2000  |
 
   Examples:
     | code | name   | price  |
     | P01  | Apple  | 100000 |
     | P02  | Orange | 150000 |
 
+@positive @addProducts @list @search @smoke @happy
 Rule: Successful login
   Scenario: Valid username and password
     Given I am on the login page
     When I input valid credentials
     Then I see the dashboard
 
+@positive @addProducts @list @search @smoke @happy
 Rule: Invalid login
   Scenario: Wrong password
     Given I am on the login page
     When I input invalid password
     Then I see an error message
 
+@negative @addProducts @list @search @smoke @happy
 Rule: There can be only One
 
   Example: Only One -- More than one alive
@@ -74,6 +83,6 @@ Rule: There can be only One
     Then one ninja dies (but not me)
     And there is one ninja less alive
 
-  Example: Only One -- One alive
+  Scenario: Only One -- One alive
     Given there is only 1 ninja alive
     Then they will live forever ;-)
