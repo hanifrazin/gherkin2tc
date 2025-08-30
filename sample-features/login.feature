@@ -4,6 +4,14 @@ Feature: Login
 Background:
   Given app is installed
 
+Scenario: Successful payment product using Virtual Account
+Scenario: Successful payment product using Bank Transfer
+
+Background:
+  Given user has already e-wallet
+Scenario: Successful payment product using e-wallet
+Scenario: Successful payment product using pay later
+
 @happy @smoke @positive @P0 @staging @production
 Scenario: Successful login "pengguna"
   Given I am on login page

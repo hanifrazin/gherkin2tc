@@ -11,14 +11,20 @@
  * - Scenario / Scenario Outline / Example (Example = alias Scenario tanpa Examples table)
  * - Scenario Outline: expand Examples → beberapa baris test case (substitusi <param>)
  * - Tag Priority: @P0/@P1/@P2/@P3 (atau @critical/@high/@medium/@low)
- * - Tag Type    : @positive/@negative (auto label 'Positive'/'Negative')
- * - Tag lain    : ke kolom Tag1..TagN (tidak termasuk Priority & Type)
+ * - Tag Type    : @positive/@negative (kolom Type → 'Positive'/'Negative')
+ * - Tag lain    : ke kolom Tag1..TagN (TANPA '@' dan casing dipertahankan)
+ *
+ * PERUBAHAN UTAMA:
+ * - Background kini tidak hanya Given: When & Then pada Background juga ikut dimasukkan:
+ *     • Background Given → Precondition (Given)
+ *     • Background When  → Test Steps (When/And)
+ *     • Background Then  → Expected Result (Then/And)
  */
 
 const fs = require('fs');
 const path = require('path');
 
-/* ---------- CLI ---------- */
+/* ---------- CLI (internal) ---------- */
 const args = process.argv.slice(2);
 if (args.length === 0) {
   console.error('Usage: node gherkin-ui.cjs <file.feature|dir> -o <out.xlsx> [--xlsx]');
@@ -74,7 +80,7 @@ function extractStep(line, lastBase) {
   return { keyword: kw, keywordBase: base, text: (m[2] || '').trim() };
 }
 
-// AKUI: kita anggap "Example:" (singular) = Scenario
+// "Example:" (singular) dianggap Scenario
 const RE_SCENARIO_HEAD = /^\s*(Scenario(?: Outline)?:|Example:)\s*(.+)$/i;
 
 function parseFeatureFile(text, filename) {
@@ -126,7 +132,7 @@ function parseFeatureFile(text, filename) {
     const ln = clean(lines[i]);
     if (!ln || ln.startsWith('#')) { i++; continue; }
 
-    // Tag menggantung (akan menempel ke entity deklaratif berikutnya)
+    // Tag menggantung (menempel ke entity deklaratif berikutnya)
     if (ln.startsWith('@')) { tags = ln.split(/\s+/).filter(Boolean); i++; continue; }
 
     // Feature
@@ -229,7 +235,7 @@ function parseFeatureFile(text, filename) {
         i++;
       }
 
-      // gabung tags & background
+      // gabung tags & background (feature + rule)
       const effectiveTags = [...(featureTags || []), ...(ruleTags || []), ...(scTags || [])];
       const effectiveBackground = [...(featureBackground || []), ...(ruleBackground || [])];
 
@@ -262,7 +268,6 @@ const substitute = (t, ex) =>
 const numbered = arr => !arr || arr.length === 0 ? '' : arr.map((s, i) => `${i + 1}. ${s}`).join('\n');
 
 const TYPE_LABELS = { positive: 'Positive', negative: 'Negative' };
-const PRIORITY_LABELS = { p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3' };
 
 const tagsToPriority = (tags) => {
   const v = (tags || []).map(x => String(x).toLowerCase());
@@ -278,14 +283,17 @@ const tagsToType = (tags) => {
   if (raw.some((v) => v.includes('@positive') || v === 'positive')) return TYPE_LABELS.positive;
   return '';
 };
-function normalizeTag(tag) {
-  const name = String(tag).replace(/^@/, '');
-  return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
-}
 
 function scenariosToRows(scn) {
-  const baseGivens = (scn.background || [])
+  // ====== PERBAIKAN UTAMA: seed kolom dari Background Given/When/Then ======
+  const bgGiven = (scn.background || [])
     .filter(s => (s.keywordBase || '').toLowerCase() === 'given')
+    .map(s => s.text);
+  const bgWhen = (scn.background || [])
+    .filter(s => (s.keywordBase || '').toLowerCase() === 'when')
+    .map(s => s.text);
+  const bgThen = (scn.background || [])
+    .filter(s => (s.keywordBase || '').toLowerCase() === 'then')
     .map(s => s.text);
 
   // Tag gabungan Feature + Rule + Scenario
@@ -294,10 +302,14 @@ function scenariosToRows(scn) {
   const Type     = tagsToType(allTagsArr);
 
   const build = (ex) => {
-    const giv = [...baseGivens], wh = [], th = [];
+    // seed dari Background dulu
+    const giv = [...bgGiven];
+    const wh  = [...bgWhen];
+    const th  = [...bgThen];
+
+    // lalu langkah-langkah scenario ditambahkan di belakangnya (menjaga urutan)
     let mode = null;
     (scn.steps || []).forEach(st => {
-      // NOTE: Example (alias Scenario) tidak punya ex; Outline pakai ex pengganti placeholder
       const txt = substitute(st.text, ex);
       const base = (st.keywordBase || '').toLowerCase();
       if (base === 'given') { mode = 'given'; giv.push(txt); }
@@ -310,11 +322,11 @@ function scenariosToRows(scn) {
       }
     });
 
-    // Tags (spasi, bukan koma) agar classifier extras berjalan benar
+    // Tags → string spasi (bukan koma). Simpan persis (apa adanya).
     const toStrTag = (t) => (t && t.name) ? t.name : String(t || '');
     const allTagsStr = allTagsArr.map(toStrTag).filter(Boolean).join(' ');
 
-    // Test Data: hanya jika ex ada (Scenario Outline). Example/Scenario → kosong.
+    // Test Data
     const testData = ex
       ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v || '(empty)'}`).join('\n')
       : '';
@@ -347,25 +359,43 @@ function scenariosToRows(scn) {
 async function writeMultiSheetXlsx(fileRowsMap, outFile) {
   const toStr = (v) => (v == null ? "" : String(v));
 
-  // Tag classifier: priority/type + extras -> Tag1..N
-  const splitAnnotations = (tagStr) => {
+  // Split token tag (apa adanya)
+  function splitAnnotations(tagStr) {
     return toStr(tagStr)
       .trim()
       .split(/\s+/)
-      .filter(t => /^@/.test(t));
-  };
-  const norm = (s) => s.toLowerCase();
+      .filter(t => /^@/.test(t)); // hanya token yang diawali '@'
+  }
 
+  // Klasifikasi → priority, type, extras (untuk Tag1..N)
   function classifyAnnotations(tagStr, seed = {}) {
     const out = {
       priority: seed.priority || seed.Priority || "",
       type: seed.type || seed.Type || "",
       extras: []
     };
-    const tokens = splitAnnotations(tagStr).map(norm);
+
+    const tokens = splitAnnotations(tagStr); // AS-IS
     for (const tok of tokens) {
-      if (/^@p[0-3]$/.test(tok)) { out.priority = tok.slice(1).toUpperCase(); continue; }
-      if (tok === "@positive" || tok === "@negative") { out.type = TYPE_LABELS[tok.slice(1)]; continue; }
+      const low = tok.toLowerCase();
+
+      // Priority
+      if (/^@p[0-3]$/.test(low) || low === '@critical' || low === '@high' || low === '@medium' || low === '@low') {
+        if (/^@p[0-3]$/.test(low)) out.priority = low.slice(1).toUpperCase(); // P0..P3
+        else if (low === '@critical') out.priority = 'P0';
+        else if (low === '@high') out.priority = 'P1';
+        else if (low === '@medium') out.priority = 'P2';
+        else if (low === '@low') out.priority = 'P3';
+        continue;
+      }
+
+      // Type
+      if (low === '@positive' || low === '@negative') {
+        out.type = (low === '@positive') ? 'Positive' : 'Negative';
+        continue;
+      }
+
+      // Sisanya → extras (AS-IS, preserve casing); “@” dihapus saat ditulis ke TagN
       out.extras.push(tok);
     }
     return out;
@@ -452,7 +482,12 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
       for (const r of rows) {
         const { priority, type, extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
         const tcid = `${prefix}-${String(counter).padStart(3, '0')}`; counter++;
-        const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? normalizeTag(extras[i]) : '');
+
+        // TagN: tulis tanpa '@' + preserve case
+        const extraCols = Array.from(
+          { length: maxExtras },
+          (_, i) => extras[i] ? String(extras[i]).replace(/^@/, '') : ''
+        );
 
         ws.addRow([
           tcid,
@@ -513,7 +548,11 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         for (const r of rows) {
           const { priority, type, extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
           const tcid = `${prefix}-${String(counter).padStart(3, '0')}`; counter++;
-          const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? normalizeTag(extras[i]) : '');
+
+          const extraCols = Array.from(
+            { length: maxExtras },
+            (_, i) => extras[i] ? String(extras[i]).replace(/^@/, '') : ''
+          );
 
           aoa.push([
             tcid,
