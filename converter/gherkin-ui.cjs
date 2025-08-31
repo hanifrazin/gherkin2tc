@@ -7,15 +7,20 @@
  *        Precondition (Given), Test Steps (When/And), Test Data,
  *        Expected Result (Then/And), Tag1..TagN (dinamis)
  *
- * PENTING (perbaikan sesuai permintaan):
- * - Background kini menyalurkan:
- *   • Given/And → Precondition (Given)
- *   • When/And  → Test Steps (When/And)
- *   • Then/And  → Expected Result (Then/And)
- * - Doc string (""" ... """) & data table (|...|) di Background/Scenario
- *   ikut menempel ke step terakhir yang bersangkutan.
- * - Tag lain (selain priority/type) dipetakan ke Tag1..TagN TANPA '@' dan
- *   casing dipertahankan (AS-IS). Priority/Type tetap terdeteksi seperti biasa.
+ * Perilaku existing (dipertahankan):
+ * - Feature/Rule (dengan Rule-level Background & tags)
+ * - Scenario / Scenario Outline (multi-Examples)
+ * - Background Feature & Rule → seed kolom:
+ *     Given → Precondition, When → Test Steps, Then → Expected Result
+ * - Doc string ("""...""") dan data table (|...|) menempel ke step terakhir
+ * - Type dari @positive/@negative → "Positive"/"Negative"
+ * - Priority dari @P0..@P3 atau @critical/@high/@medium/@low
+ * - Tag lain → Tag1..TagN TANPA '@' dan preserve casing as-is
+ *
+ * Tambahan (permintaan terbaru):
+ * - EKSTRAK pasangan label = "nilai" dari SEMUA langkah When (termasuk And/But yang berbasis When),
+ *   baik di Background (Feature/Rule) maupun di dalam Scenario/Example.
+ *   Nilai "" → (empty). Ditempatkan setelah data dari Examples (bila ada), penomoran berlanjut.
  */
 
 const fs = require('fs');
@@ -88,9 +93,8 @@ function parseFeatureFile(text, filename) {
   let i = 0;
 
   function attachDocStringTo(targetArr) {
-    // di titik pemanggilan, baris pembuka """ sudah di-scan oleh caller
     const buf = [];
-    i++; // masuk setelah pembuka
+    i++; // sesudah pembuka """
     while (i < lines.length && !/^\s*"""/.test(lines[i])) {
       buf.push(lines[i].replace(/\r$/, ''));
       i++;
@@ -214,7 +218,6 @@ function parseFeatureFile(text, filename) {
         i++;
       }
 
-      // gabungkan tag & background efektif
       const effectiveTags = [...(featureTags || []), ...(ruleTags || []), ...(scTags || [])];
       const effectiveBg   = [...(featureBackground || []), ...(ruleBackground || [])];
 
@@ -227,7 +230,8 @@ function parseFeatureFile(text, filename) {
         tags: scTags,
         type,
         name,
-        background: effectiveBg,
+        background: effectiveBg,              // seed kolom
+        backgroundRuleOnly: ruleBackground,   // referensi rule BG asli (kalau perlu)
         steps,
         examples
       });
@@ -240,7 +244,7 @@ function parseFeatureFile(text, filename) {
   return { feature, scenarios };
 }
 
-/* ---------- Mapping ---------- */
+/* ---------- Mapping & Extraction ---------- */
 const substitute = (t, ex) =>
   ex ? String(t).replace(/<\s*([^>]+)\s*>/g, (_, k) => (k in ex ? ex[k] : `<${k}>`)) : String(t);
 
@@ -263,8 +267,49 @@ const tagsToType = (tags) => {
   return '';
 };
 
+/** Cari pasangan label="value" dari teks When (setelah substitusi Examples).
+ * - Untuk setiap "..." di teks, label diambil dari kata terakhir yang muncul tepat sebelum kutip.
+ * - Jika tak ada label ditemukan, pakai arg1/arg2/...
+ */
+function labelValuePairsFromWhenText(text) {
+  const pairs = [];
+  if (!text) return pairs;
+  const rx = /"([^"]*)"/g;
+  let m, idx = 0;
+  while ((m = rx.exec(text)) !== null) {
+    const before = text.slice(0, m.index);
+    // cari kata terakhir sebelum kutip → huruf/angka/_/- (abaikan spasi/komma/dll)
+    const mLabel = before.match(/([A-Za-z0-9_\-]+)\s*$/);
+    const label = mLabel ? mLabel[1] : `arg${++idx}`;
+    const val = m[1] === '' ? '(empty)' : `"${m[1]}"`;
+    pairs.push({ label, val });
+  }
+  return pairs;
+}
+
+/** Ekstrak pasangan label="value" dari SEMUA langkah When (And/But berbasis When) di:
+ * - Background (Feature & Rule) yang sudah digabung → scn.background
+ * - Steps di dalam Scenario → scn.steps
+ */
+function extractWhenPairsAllContexts(scn, ex) {
+  const res = [];
+  const apply = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const st of arr) {
+      const base = String(st.keywordBase || '').toLowerCase();
+      if (base !== 'when') continue; // hanya When (And/But berbasis When akan punya base 'when')
+      const txt = substitute(st.text || '', ex);
+      const pairs = labelValuePairsFromWhenText(txt);
+      for (const p of pairs) res.push(`${p.label} = ${p.val}`);
+    }
+  };
+  apply(scn.background);
+  apply(scn.steps);
+  return res;
+}
+
 function scenariosToRows(scn) {
-  // Seed dari Background (Given/When/Then) — beserta doc string & table yang sudah menempel ke step
+  // Seed dari Background (Given/When/Then)
   const bgGiven = (scn.background || []).filter(s => (s.keywordBase || '').toLowerCase() === 'given').map(s => s.text);
   const bgWhen  = (scn.background || []).filter(s => (s.keywordBase || '').toLowerCase() === 'when').map(s => s.text);
   const bgThen  = (scn.background || []).filter(s => (s.keywordBase || '').toLowerCase() === 'then').map(s => s.text);
@@ -293,12 +338,21 @@ function scenariosToRows(scn) {
       }
     });
 
+    // ===== Test Data =====
+    // 1) dari Examples (jika ada di Outline)
+    const baseTD = ex
+      ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v ? v : '(empty)'}`)
+      : [];
+
+    // 2) from ALL When (BG + Scenario)
+    const whenPairs = extractWhenPairsAllContexts(scn, ex);
+    const addTD = whenPairs.map((s, idx) => `${baseTD.length + idx + 1}. ${s}`);
+
+    const testData = [...baseTD, ...addTD].join('\n');
+
+    // raw tags string (gabung, dipakai untuk klasifikasi Priority/Type + render Tag1..N)
     const toStrTag = (t) => (t && t.name) ? t.name : String(t || '');
     const allTagsStr = allTagsArr.map(toStrTag).filter(Boolean).join(' ');
-
-    const testData = ex
-      ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v || '(empty)'}`).join('\n')
-      : '';
 
     return {
       Feature: scn.feature || '',
@@ -328,7 +382,6 @@ function scenariosToRows(scn) {
 async function writeMultiSheetXlsx(fileRowsMap, outFile) {
   const toStr = (v) => (v == null ? "" : String(v));
 
-  // Tag classification → priority/type + extras (AS-IS)
   function splitAnnotations(tagStr) {
     return toStr(tagStr).trim().split(/\s+/).filter(t => /^@/.test(t));
   }
@@ -336,20 +389,17 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     const out = { priority: seed.Priority || seed.priority || '', type: seed.Type || seed.type || '', extras: [] };
     for (const tok of splitAnnotations(tagStr)) {
       const low = tok.toLowerCase();
-      // priority
       if (/^@p[0-3]$/.test(low) || ['@critical','@high','@medium','@low'].includes(low)) {
         out.priority =
           /^@p[0-3]$/.test(low) ? low.slice(1).toUpperCase() :
           (low === '@critical' ? 'P0' : low === '@high' ? 'P1' : low === '@medium' ? 'P2' : 'P3');
         continue;
       }
-      // type
       if (low === '@positive' || low === '@negative') {
         out.type = (low === '@positive') ? 'Positive' : 'Negative';
         continue;
       }
-      // extras (AS-IS, tanpa '@' saat ditulis)
-      out.extras.push(tok);
+      out.extras.push(tok); // AS-IS
     }
     return out;
   }
@@ -379,7 +429,8 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
       row.eachCell(cell => {
         const val = toStr(cell.value); if (!val) return;
         const width = ws.getColumn(cell.col).width || 10;
-        const lines = val.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / Math.max(1, Math.floor(width)))), 0);
+        const approx = Math.max(1, Math.floor(width));
+        const lines = val.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / approx)), 0);
         if (lines > maxLines) maxLines = lines;
       });
       row.height = Math.min(15 * maxLines, 220);
@@ -441,7 +492,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     return true;
 
   } catch (e) {
-    // Fallback ke "xlsx" (tanpa pageSetup)
+    // Fallback ke "xlsx"
     try {
       const XLSX = require('xlsx');
       const wb = XLSX.utils.book_new();
@@ -450,7 +501,14 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         const maxExtras = (function () {
           let max = 0;
           for (const r of rows) {
-            const { extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
+            const toks = String(r.Tags || '').trim().split(/\s+/).filter(t => /^@/.test(t));
+            const extras = [];
+            for (const tok of toks) {
+              const low = tok.toLowerCase();
+              if (/^@p[0-3]$/.test(low) || ['@critical','@high','@medium','@low'].includes(low)) continue;
+              if (low === '@positive' || low === '@negative') continue;
+              extras.push(tok);
+            }
             if (extras.length > max) max = extras.length;
           }
           return max;
@@ -468,14 +526,24 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         let counter = 1;
 
         for (const r of rows) {
-          const { priority, type, extras } = classifyAnnotations(r.Tags, { priority: r.Priority, type: r.Type });
           const tcid = `${prefix}-${String(counter).padStart(3, '0')}`; counter++;
-          const extraCols = Array.from({ length: maxExtras }, (_, i) => extras[i] ? String(extras[i]).replace(/^@/, '') : '');
+          const extraCols = (function (tagStr) {
+            const toks = String(tagStr || '').trim().split(/\s+/).filter(t => /^@/.test(t));
+            const extras = [];
+            for (const tok of toks) {
+              const low = tok.toLowerCase();
+              if (/^@p[0-3]$/.test(low) || ['@critical','@high','@medium','@low'].includes(low)) continue;
+              if (low === '@positive' || low === '@negative') continue;
+              extras.push(String(tok).replace(/^@/, ''));
+            }
+            return Array.from({ length: maxExtras }, (_, i) => extras[i] || '');
+          })(r.Tags);
+
           aoa.push([
             tcid,
             r.Feature ?? '',
-            (type || r.Type || ''),
-            (priority || r.Priority || ''),
+            r.Type ?? '',
+            r.Priority ?? '',
             r.Rule ?? '',
             r.Title ?? '',
             r['Precondition (Given)'] ?? '',
