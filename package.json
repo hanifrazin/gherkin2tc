@@ -11,7 +11,8 @@
   "main": "command.js",
   "bin": {
     "grise": "./cli/command-grise.js",
-    "pile": "./cli/command-pile.js"
+    "pile": "./cli/command-pile.js",
+    "grapite": "./cli/command-grapite.js"
   },
   "repository": {
     "type": "git",
