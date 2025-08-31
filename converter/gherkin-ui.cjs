@@ -8,19 +8,23 @@
  *        Expected Result (Then/And), Tag1..TagN (dinamis)
  *
  * Perilaku existing (dipertahankan):
- * - Feature/Rule (dengan Rule-level Background & tags)
  * - Scenario / Scenario Outline (multi-Examples)
  * - Background Feature & Rule → seed kolom:
- *     Given → Precondition, When → Test Steps, Then → Expected Result
- * - Doc string ("""...""") dan data table (|...|) menempel ke step terakhir
- * - Type dari @positive/@negative → "Positive"/"Negative"
+ *     Given → Precondition, When → Test Steps, Then → Expected
+ * - Doc string ("""...""") & data table (|...|) menempel ke step terakhir
+ * - Type dari @positive/@negative (label "Positive"/"Negative")
  * - Priority dari @P0..@P3 atau @critical/@high/@medium/@low
- * - Tag lain → Tag1..TagN TANPA '@' dan preserve casing as-is
+ * - Tag lain → Tag1..TagN TANPA '@' dan preserve casing (AS-IS)
  *
- * Tambahan (permintaan terbaru):
- * - EKSTRAK pasangan label = "nilai" dari SEMUA langkah When (termasuk And/But yang berbasis When),
- *   baik di Background (Feature/Rule) maupun di dalam Scenario/Example.
- *   Nilai "" → (empty). Ditempatkan setelah data dari Examples (bila ada), penomoran berlanjut.
+ * Tambahan (aturan baru):
+ * - Jika Scenario punya Examples:
+ *     * Abaikan ekstraksi dari langkah When/And (tidak diambil ke Test Data).
+ *     * Test Data hanya dari Examples, namun KOLOM PERTAMA di tabel Examples di-skip.
+ *       Jika tabel hanya 1 kolom → tidak ada item Test Data dari Examples.
+ * - Jika TIDAK punya Examples:
+ *     * Ekstrak pasangan label = "nilai" dari SEMUA langkah When/And (And berbasis When)
+ *       di Background & Scenario, baik di dalam Rule maupun tidak.
+ *       Nilai "" → (empty).
  */
 
 const fs = require('fs');
@@ -94,12 +98,12 @@ function parseFeatureFile(text, filename) {
 
   function attachDocStringTo(targetArr) {
     const buf = [];
-    i++; // sesudah pembuka """
+    i++; // setelah pembuka """
     while (i < lines.length && !/^\s*"""/.test(lines[i])) {
       buf.push(lines[i].replace(/\r$/, ''));
       i++;
     }
-    if (i < lines.length) i++; // konsumsi penutup """
+    if (i < lines.length) i++; // penutup """
     if (targetArr && targetArr.length) {
       targetArr[targetArr.length - 1].text += '\n' + '"""' + '\n' + buf.join('\n') + '\n' + '"""';
     }
@@ -128,7 +132,7 @@ function parseFeatureFile(text, filename) {
         targetArr.push(st);
         i++; continue;
       }
-      i++; // baris non-step lain di-skip
+      i++;
     }
   }
 
@@ -199,6 +203,12 @@ function parseFeatureFile(text, filename) {
             for (let r = 1; r < rows.length; r++) {
               const obj = {};
               hdr.forEach((h, idx) => obj[h] = rows[r][idx] ?? '');
+              // simpan header ke setiap row untuk urutan kolom (aturan skip kolom-1)
+              Object.defineProperty(obj, '__hdr', {
+                value: hdr.slice(),
+                enumerable: false, // jangan ikut saat Object.entries
+                writable: false
+              });
               examples.push(obj);
             }
           }
@@ -230,8 +240,9 @@ function parseFeatureFile(text, filename) {
         tags: scTags,
         type,
         name,
-        background: effectiveBg,              // seed kolom
-        backgroundRuleOnly: ruleBackground,   // referensi rule BG asli (kalau perlu)
+        background: effectiveBg,           // seed kolom
+        bgFeatureOnly: featureBackground.slice(),
+        bgRuleOnly: ruleBackground.slice(),
         steps,
         examples
       });
@@ -244,7 +255,7 @@ function parseFeatureFile(text, filename) {
   return { feature, scenarios };
 }
 
-/* ---------- Mapping & Extraction ---------- */
+/* ---------- Mapping ---------- */
 const substitute = (t, ex) =>
   ex ? String(t).replace(/<\s*([^>]+)\s*>/g, (_, k) => (k in ex ? ex[k] : `<${k}>`)) : String(t);
 
@@ -267,45 +278,42 @@ const tagsToType = (tags) => {
   return '';
 };
 
-/** Cari pasangan label="value" dari teks When (setelah substitusi Examples).
- * - Untuk setiap "..." di teks, label diambil dari kata terakhir yang muncul tepat sebelum kutip.
- * - Jika tak ada label ditemukan, pakai arg1/arg2/...
- */
-function labelValuePairsFromWhenText(text) {
-  const pairs = [];
-  if (!text) return pairs;
-  const rx = /"([^"]*)"/g;
-  let m, idx = 0;
-  while ((m = rx.exec(text)) !== null) {
-    const before = text.slice(0, m.index);
-    // cari kata terakhir sebelum kutip → huruf/angka/_/- (abaikan spasi/komma/dll)
-    const mLabel = before.match(/([A-Za-z0-9_\-]+)\s*$/);
-    const label = mLabel ? mLabel[1] : `arg${++idx}`;
-    const val = m[1] === '' ? '(empty)' : `"${m[1]}"`;
-    pairs.push({ label, val });
+/* ===== Ekstraksi pasangan label="value" dari step When ===== */
+function extractLabelValuePairsFromWhenText(txt) {
+  const res = [];
+  if (!txt) return res;
+
+  const rx = /([A-Za-z0-9_\-\s]+?)\s*"([^"]*)"/g;
+  let m;
+  while ((m = rx.exec(txt)) !== null) {
+    let rawLabel = (m[1] || '').trim();
+    const value = m[2];
+
+    rawLabel = rawLabel.replace(/^(?:with|and|the|a|an|of|as|to|by|for)\s+/i, '').trim();
+    rawLabel = rawLabel.replace(/\s+/g, ' ').trim();
+
+    const parts = rawLabel.split(/\s+/).filter(Boolean);
+    let label = rawLabel;
+    if (parts.length > 2) label = parts.slice(-2).join(' ');
+
+    const valueStr = (value === '') ? '(empty)' : `"${value}"`;
+    if (label) res.push(`${label} = ${valueStr}`);
   }
-  return pairs;
+  return res;
 }
 
-/** Ekstrak pasangan label="value" dari SEMUA langkah When (And/But berbasis When) di:
- * - Background (Feature & Rule) yang sudah digabung → scn.background
- * - Steps di dalam Scenario → scn.steps
- */
-function extractWhenPairsAllContexts(scn, ex) {
-  const res = [];
-  const apply = (arr) => {
-    if (!Array.isArray(arr)) return;
-    for (const st of arr) {
-      const base = String(st.keywordBase || '').toLowerCase();
-      if (base !== 'when') continue; // hanya When (And/But berbasis When akan punya base 'when')
-      const txt = substitute(st.text || '', ex);
-      const pairs = labelValuePairsFromWhenText(txt);
-      for (const p of pairs) res.push(`${p.label} = ${p.val}`);
-    }
-  };
-  apply(scn.background);
-  apply(scn.steps);
-  return res;
+function collectWhenPairsForScenario(scn, ex) {
+  const whBg = (scn.background || [])
+    .filter(s => String(s.keywordBase || '').toLowerCase() === 'when')
+    .map(s => substitute(s.text || '', ex));
+  const whSc = (scn.steps || [])
+    .filter(s => String(s.keywordBase || '').toLowerCase() === 'when')
+    .map(s => substitute(s.text || '', ex));
+  const all = [...whBg, ...whSc];
+
+  const pairs = [];
+  for (const t of all) pairs.push(...extractLabelValuePairsFromWhenText(t));
+  return pairs;
 }
 
 function scenariosToRows(scn) {
@@ -318,12 +326,14 @@ function scenariosToRows(scn) {
   const Priority = tagsToPriority(allTagsArr);
   const Type     = tagsToType(allTagsArr);
 
+  const hasExamples = (scn.type === 'Scenario Outline' && (scn.examples || []).length > 0);
+
   const build = (ex) => {
     const giv = [...bgGiven];
     const wh  = [...bgWhen];
     const th  = [...bgThen];
 
-    // tambahkan langkah Scenario (doc string/table sudah menempel sejak parsing)
+    // tambahkan langkah Scenario
     let mode = null;
     (scn.steps || []).forEach(st => {
       const txt  = substitute(st.text, ex);
@@ -339,18 +349,30 @@ function scenariosToRows(scn) {
     });
 
     // ===== Test Data =====
-    // 1) dari Examples (jika ada di Outline)
-    const baseTD = ex
-      ? Object.entries(ex).map(([k, v], i) => `${i+1}. ${k} = ${v ? v : '(empty)'}`)
-      : [];
+    // 1) Jika ada Examples: ambil dari Examples SAJA, skip kolom pertama
+    let baseTD = [];
+    if (ex && hasExamples) {
+      const hdr = Array.isArray(ex.__hdr) ? ex.__hdr : Object.keys(ex);
+      if (hdr.length > 1) {
+        for (let i = 1; i < hdr.length; i++) {
+          const key = hdr[i];
+          const val = ex[key];
+          baseTD.push(`${baseTD.length + 1}. ${key} = ${val ? val : '(empty)'}`);
+        }
+      }
+      // Jika hanya 1 kolom → baseTD tetap kosong (skip)
+    }
 
-    // 2) from ALL When (BG + Scenario)
-    const whenPairs = extractWhenPairsAllContexts(scn, ex);
-    const addTD = whenPairs.map((s, idx) => `${baseTD.length + idx + 1}. ${s}`);
+    // 2) Jika TIDAK ada Examples: ambil pasangan dari semua langkah WHEN (BG + Scenario)
+    let addTD = [];
+    if (!hasExamples) {
+      const whenPairs = collectWhenPairsForScenario(scn, ex);
+      addTD = whenPairs.map((pair, idx) => `${baseTD.length + idx + 1}. ${pair}`);
+    }
 
     const testData = [...baseTD, ...addTD].join('\n');
 
-    // raw tags string (gabung, dipakai untuk klasifikasi Priority/Type + render Tag1..N)
+    // raw tags string untuk Tag1..N
     const toStrTag = (t) => (t && t.name) ? t.name : String(t || '');
     const allTagsStr = allTagsArr.map(toStrTag).filter(Boolean).join(' ');
 
@@ -502,13 +524,10 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
           let max = 0;
           for (const r of rows) {
             const toks = String(r.Tags || '').trim().split(/\s+/).filter(t => /^@/.test(t));
-            const extras = [];
-            for (const tok of toks) {
+            const extras = toks.filter(tok => {
               const low = tok.toLowerCase();
-              if (/^@p[0-3]$/.test(low) || ['@critical','@high','@medium','@low'].includes(low)) continue;
-              if (low === '@positive' || low === '@negative') continue;
-              extras.push(tok);
-            }
+              return !(/^@p[0-3]$/.test(low) || ['@critical','@high','@medium','@low','@positive','@negative'].includes(low));
+            });
             if (extras.length > max) max = extras.length;
           }
           return max;
@@ -527,15 +546,12 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
 
         for (const r of rows) {
           const tcid = `${prefix}-${String(counter).padStart(3, '0')}`; counter++;
-          const extraCols = (function (tagStr) {
+          const extraCols = (function extractExtras(tagStr) {
             const toks = String(tagStr || '').trim().split(/\s+/).filter(t => /^@/.test(t));
-            const extras = [];
-            for (const tok of toks) {
+            const extras = toks.filter(tok => {
               const low = tok.toLowerCase();
-              if (/^@p[0-3]$/.test(low) || ['@critical','@high','@medium','@low'].includes(low)) continue;
-              if (low === '@positive' || low === '@negative') continue;
-              extras.push(String(tok).replace(/^@/, ''));
-            }
+              return !(/^@p[0-3]$/.test(low) || ['@critical','@high','@medium','@low','@positive','@negative'].includes(low));
+            }).map(x => String(x).replace(/^@/, ''));
             return Array.from({ length: maxExtras }, (_, i) => extras[i] || '');
           })(r.Tags);
 
