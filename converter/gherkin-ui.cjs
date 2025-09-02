@@ -7,24 +7,22 @@
  *        Precondition (Given), Test Steps (When/And), Test Data,
  *        Expected Result (Then/And), Tag1..TagN (dinamis)
  *
- * Perilaku existing (dipertahankan):
- * - Scenario / Scenario Outline (multi-Examples)
- * - Background Feature & Rule → seed kolom:
- *     Given → Precondition, When → Test Steps, Then → Expected
- * - Doc string ("""...""") & data table (|...|) menempel ke step terakhir
- * - Type dari @positive/@negative (label "Positive"/"Negative")
- * - Priority dari @P0..@P3 atau @critical/@high/@medium/@low
- * - Tag lain → Tag1..TagN TANPA '@' dan preserve casing (AS-IS)
+ * Behavior utama (dipertahankan):
+ * - Multi-Feature dalam satu file .feature
+ * - Rule & Rule Background (scoped)
+ * - Feature Background (scoped)
+ * - DOCSTRING / Data Table menempel ke step sebelumnya
+ * - Tags → Priority/Type + Tag1..TagN (tanpa '@' untuk extras; casing AS-IS; Positive/Negative kapital awal)
+ * - Examples:
+ *    • Jika ada Examples → Test Data hanya dari Examples (SKIP kolom pertama; kalau cuma 1 kolom → kosong)
+ *    • Jika TIDAK ada Examples → ekstrak pasangan label="value" dari semua When/And (BG + Scenario)
  *
- * Tambahan (aturan baru):
- * - Jika Scenario punya Examples:
- *     * Abaikan ekstraksi dari langkah When/And (tidak diambil ke Test Data).
- *     * Test Data hanya dari Examples, namun KOLOM PERTAMA di tabel Examples di-skip.
- *       Jika tabel hanya 1 kolom → tidak ada item Test Data dari Examples.
- * - Jika TIDAK punya Examples:
- *     * Ekstrak pasangan label = "nilai" dari SEMUA langkah When/And (And berbasis When)
- *       di Background & Scenario, baik di dalam Rule maupun tidak.
- *       Nilai "" → (empty).
+ * PERBAIKAN (permintaan terbaru):
+ * - Multiple Background pada level Feature/Rule:
+ *   Setiap kali ditemukan "Background:" pada scope saat ini:
+ *     • Jika di level Feature → RESET featureBackground lalu muat blok Background baru
+ *     • Jika di level Rule    → RESET ruleBackground lalu muat blok Background baru
+ *   Background yang baru hanya berlaku untuk Scenario/Outline setelahnya, dalam scope yang sama.
  */
 
 const fs = require('fs');
@@ -88,9 +86,10 @@ const RE_SC_HEAD = /^\s*(Scenario(?: Outline)?:|Example:)\s*(.+)$/i;
 function parseFeatureFile(text, filename) {
   const lines = text.split(/\r?\n/);
 
+  // KONTEKS saat ini
   let feature = '', featureTags = [];
-  let featureBackground = [];
-  let currentRule = ''; let ruleTags = []; let ruleBackground = [];
+  let featureBackground = [];   // background AKTIF pada level Feature (akan di-reset di setiap "Background:" di level feature)
+  let currentRule = ''; let ruleTags = []; let ruleBackground = []; // background AKTIF pada level Rule
 
   const scenarios = [];
   let danglingTags = [];
@@ -115,6 +114,7 @@ function parseFeatureFile(text, filename) {
     i++;
   }
 
+  // parse 1 blok Background (menambah step ke targetArr)
   function parseBackgroundBlock(targetArr) {
     let last = null;
     while (i < lines.length) {
@@ -144,23 +144,38 @@ function parseFeatureFile(text, filename) {
     if (ln.startsWith('@')) { danglingTags = ln.split(/\s+/).filter(Boolean); i++; continue; }
 
     if (/^\s*Feature:/i.test(ln)) {
+      // === FEATURE BARU ===
       feature = ln.replace(/^\s*Feature:\s*/i, '').trim();
       if (danglingTags.length) { featureTags = danglingTags.slice(); danglingTags = []; }
-      currentRule = ''; ruleTags = []; ruleBackground = [];
-      i++; continue;
-    }
-
-    if (/^\s*Rule:/i.test(ln)) {
-      currentRule = ln.replace(/^\s*Rule:\s*/i, '').trim();
-      ruleTags = danglingTags.slice(); danglingTags = [];
+      // RESET segala konteks dari feature sebelumnya
+      featureBackground = [];            // ⬅ penting: bersihkan background aktif feature
+      currentRule = '';                  // keluar dari rule sebelumnya
+      ruleTags = [];
       ruleBackground = [];
       i++; continue;
     }
 
+    if (/^\s*Rule:/i.test(ln)) {
+      // === RULE BARU (masih dalam feature yang sama) ===
+      currentRule = ln.replace(/^\s*Rule:\s*/i, '').trim();
+      ruleTags = danglingTags.slice();   // tag sebelum Rule → tag Rule
+      danglingTags = [];
+      ruleBackground = [];               // reset background rule saat mulai Rule baru
+      i++; continue;
+    }
+
     if (/^\s*Background:/i.test(ln)) {
+      // === BACKGROUND BARU pada scope saat ini ===
       i++;
-      if (currentRule) parseBackgroundBlock(ruleBackground);
-      else parseBackgroundBlock(featureBackground);
+      if (currentRule) {
+        // Background dalam Rule → RESET ruleBackground, lalu isi dengan blok baru
+        ruleBackground = [];
+        parseBackgroundBlock(ruleBackground);
+      } else {
+        // Background pada Feature → RESET featureBackground, lalu isi dengan blok baru
+        featureBackground = [];
+        parseBackgroundBlock(featureBackground);
+      }
       continue;
     }
 
@@ -203,11 +218,9 @@ function parseFeatureFile(text, filename) {
             for (let r = 1; r < rows.length; r++) {
               const obj = {};
               hdr.forEach((h, idx) => obj[h] = rows[r][idx] ?? '');
-              // simpan header ke setiap row untuk urutan kolom (aturan skip kolom-1)
               Object.defineProperty(obj, '__hdr', {
                 value: hdr.slice(),
-                enumerable: false, // jangan ikut saat Object.entries
-                writable: false
+                enumerable: false
               });
               examples.push(obj);
             }
@@ -228,8 +241,10 @@ function parseFeatureFile(text, filename) {
         i++;
       }
 
-      const effectiveTags = [...(featureTags || []), ...(ruleTags || []), ...(scTags || [])];
-      const effectiveBg   = [...(featureBackground || []), ...(ruleBackground || [])];
+      // Hitung background efektif untuk scenario ini (sesuai scope aktif)
+      const effectiveBg = currentRule
+        ? [...(featureBackground || []), ...(ruleBackground || [])]  // Rule: FeatureBG + RuleBG (aktif)
+        : [...(featureBackground || [])];                            // No-Rule: hanya FeatureBG (aktif)
 
       scenarios.push({
         file: filename,
@@ -240,9 +255,7 @@ function parseFeatureFile(text, filename) {
         tags: scTags,
         type,
         name,
-        background: effectiveBg,           // seed kolom
-        bgFeatureOnly: featureBackground.slice(),
-        bgRuleOnly: ruleBackground.slice(),
+        background: effectiveBg,
         steps,
         examples
       });
@@ -278,30 +291,25 @@ const tagsToType = (tags) => {
   return '';
 };
 
-/* ===== Ekstraksi pasangan label="value" dari step When ===== */
+/* ===== Ekstraksi pasangan label="value" dari step When (untuk skenario TANPA Examples) ===== */
 function extractLabelValuePairsFromWhenText(txt) {
   const res = [];
   if (!txt) return res;
-
   const rx = /([A-Za-z0-9_\-\s]+?)\s*"([^"]*)"/g;
   let m;
   while ((m = rx.exec(txt)) !== null) {
     let rawLabel = (m[1] || '').trim();
     const value = m[2];
-
     rawLabel = rawLabel.replace(/^(?:with|and|the|a|an|of|as|to|by|for)\s+/i, '').trim();
     rawLabel = rawLabel.replace(/\s+/g, ' ').trim();
-
     const parts = rawLabel.split(/\s+/).filter(Boolean);
     let label = rawLabel;
-    if (parts.length > 2) label = parts.slice(-2).join(' ');
-
+    if (parts.length > 2) label = parts.slice(-2).join(' ');  // ambil "ekor" 2 kata
     const valueStr = (value === '') ? '(empty)' : `"${value}"`;
     if (label) res.push(`${label} = ${valueStr}`);
   }
   return res;
 }
-
 function collectWhenPairsForScenario(scn, ex) {
   const whBg = (scn.background || [])
     .filter(s => String(s.keywordBase || '').toLowerCase() === 'when')
@@ -310,14 +318,13 @@ function collectWhenPairsForScenario(scn, ex) {
     .filter(s => String(s.keywordBase || '').toLowerCase() === 'when')
     .map(s => substitute(s.text || '', ex));
   const all = [...whBg, ...whSc];
-
   const pairs = [];
   for (const t of all) pairs.push(...extractLabelValuePairsFromWhenText(t));
   return pairs;
 }
 
 function scenariosToRows(scn) {
-  // Seed dari Background (Given/When/Then)
+  // Seed dari Background (Given/When/Then) sesuai konteks yang benar (sudah dihitung di parser)
   const bgGiven = (scn.background || []).filter(s => (s.keywordBase || '').toLowerCase() === 'given').map(s => s.text);
   const bgWhen  = (scn.background || []).filter(s => (s.keywordBase || '').toLowerCase() === 'when').map(s => s.text);
   const bgThen  = (scn.background || []).filter(s => (s.keywordBase || '').toLowerCase() === 'then').map(s => s.text);
@@ -333,7 +340,7 @@ function scenariosToRows(scn) {
     const wh  = [...bgWhen];
     const th  = [...bgThen];
 
-    // tambahkan langkah Scenario
+    // tambahkan langkah Scenario (doc string/table sudah menempel sejak parsing)
     let mode = null;
     (scn.steps || []).forEach(st => {
       const txt  = substitute(st.text, ex);
@@ -349,27 +356,22 @@ function scenariosToRows(scn) {
     });
 
     // ===== Test Data =====
-    // 1) Jika ada Examples: ambil dari Examples SAJA, skip kolom pertama
     let baseTD = [];
     if (ex && hasExamples) {
       const hdr = Array.isArray(ex.__hdr) ? ex.__hdr : Object.keys(ex);
       if (hdr.length > 1) {
-        for (let i = 1; i < hdr.length; i++) {
+        for (let i = 1; i < hdr.length; i++) {      // SKIP KOLOM PERTAMA
           const key = hdr[i];
           const val = ex[key];
           baseTD.push(`${baseTD.length + 1}. ${key} = ${val ? val : '(empty)'}`);
         }
       }
-      // Jika hanya 1 kolom → baseTD tetap kosong (skip)
     }
-
-    // 2) Jika TIDAK ada Examples: ambil pasangan dari semua langkah WHEN (BG + Scenario)
     let addTD = [];
     if (!hasExamples) {
       const whenPairs = collectWhenPairsForScenario(scn, ex);
       addTD = whenPairs.map((pair, idx) => `${baseTD.length + idx + 1}. ${pair}`);
     }
-
     const testData = [...baseTD, ...addTD].join('\n');
 
     // raw tags string untuk Tag1..N
@@ -421,7 +423,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
         out.type = (low === '@positive') ? 'Positive' : 'Negative';
         continue;
       }
-      out.extras.push(tok); // AS-IS
+      out.extras.push(tok); // AS-IS (preserve casing & tanpa normalisasi)
     }
     return out;
   }
@@ -514,7 +516,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
     return true;
 
   } catch (e) {
-    // Fallback ke "xlsx"
+    // Fallback "xlsx" (tanpa styling lanjutan)
     try {
       const XLSX = require('xlsx');
       const wb = XLSX.utils.book_new();
@@ -598,7 +600,7 @@ async function writeMultiSheetXlsx(fileRowsMap, outFile) {
   const usedNames = new Set();
 
   for (const { file, content } of inputs) {
-    const { feature, scenarios } = parseFeatureFile(content, file);
+    const { scenarios } = parseFeatureFile(content, file);
 
     let rows = [];
     for (const scn of scenarios) rows = rows.concat(scenariosToRows(scn));
