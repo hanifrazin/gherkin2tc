@@ -1,4 +1,4 @@
-@regression
+å
 Feature: Checkout Flows
 
     Background:

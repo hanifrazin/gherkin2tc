@@ -11,30 +11,6 @@ GRISE – Gherkin UI to Test Case
 
 Usage:
   grise -i <input> [-o <output.xlsx>] [--outdir <dir>] [--mode sheet|files] [--overwrite] [--no-timestamp] [-q|--quiet]
-
-Options:
-  -i, --input         Path ke file .feature atau folder berisi .feature (wajib)
-  -o, --output        Path file .xlsx hasil konversi (untuk mode file tunggal atau mode sheet)
-  --outdir            Folder output (dipakai saat --mode files); default: output/
-  --mode              Jika input = folder:
-                        sheet  -> gabung ke 1 workbook (multi-sheet)
-                        files  -> hasilkan banyak .xlsx (1 per .feature)
-                      Default: sheet
-  --overwrite         Izinkan replace file output jika sudah ada (tanpa tambah timestamp)
-  --no-timestamp      Jangan tambahkan timestamp otomatis (hanya efek jika -o tidak diisi atau file sudah ada)
-  -q, --quiet         Kurangi log tambahan wrapper
-  -h, --help          Tampilkan bantuan
-
-Default:
-  - File input:
-      tanpa -o -> output/<namaFile>-YYYYMMDD_HHmmss.xlsx
-  - Folder input:
-      --mode sheet:
-        tanpa -o -> output/<namaFolder>-YYYYMMDD_HHmmss.xlsx
-      --mode files:
-        -o diabaikan, pakai --outdir
-        tiap .feature -> <outdir>/<namaFeature>-YYYYMMDD_HHmmss.xlsx
-  - Folder output dibuat otomatis jika belum ada.
 `);
 }
 
@@ -100,17 +76,18 @@ function listFeatures(dir) {
     .map((f) => path.join(dir, f));
 }
 
-// ========== PATH CONVERTER (naik 1 folder dari cli/) ==========
+// ========== PATH CONVERTER ==========
 const converterPath = path.resolve(__dirname, "..", "converter", "gherkin-ui.cjs");
 if (!fs.existsSync(converterPath)) {
   console.error(`Error: Tidak menemukan converter di: ${converterPath}`);
   process.exit(1);
 }
+if (!quiet) console.log(`ℹ️  Converter: ${converterPath}`); // <<— penting agar kelihatan yang dipakai
+/* (ref) */ console.log("NOTE: command-grise.js wrapper loaded."); // keep a tiny marker  [oai_citation:1‡command-grise.js](file-service://file-J29TYnNLVGozp6RXTcqu6r)
 
 // ========== FILE MODE ==========
 if (!isDir) {
   const base = path.basename(input, ".feature");
-
   if (!output) {
     const filename = noTs ? `${base}.xlsx` : `${base}-${ts()}.xlsx`;
     output = path.join("output-testcase", filename);
@@ -128,7 +105,6 @@ if (!isDir) {
   }
 
   ensureDir(path.dirname(output));
-
   const cmd = `node "${converterPath}" "${input}" -o "${output}" --xlsx`;
   if (!quiet) console.log(`> ${cmd}`);
   try {
@@ -141,7 +117,7 @@ if (!isDir) {
   process.exit(0);
 }
 
-// ========== FOLDER MODE: sheet ==========
+// ========== FOLDER MODE ==========
 if (mode === "sheet") {
   const base = path.basename(path.resolve(input));
   if (!output) {
@@ -161,7 +137,6 @@ if (mode === "sheet") {
   }
 
   ensureDir(path.dirname(output));
-
   const cmd = `node "${converterPath}" "${input}" -o "${output}" --xlsx`;
   if (!quiet) console.log(`> ${cmd}`);
   try {
@@ -174,7 +149,7 @@ if (mode === "sheet") {
   process.exit(0);
 }
 
-// ========== FOLDER MODE: files ==========
+// mode=files
 const featurePaths = listFeatures(input);
 if (featurePaths.length === 0) {
   console.error(`Error: Tidak ditemukan file .feature di folder: ${input}`);
