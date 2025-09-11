@@ -1,9 +1,9 @@
 /**
  * Gherkin Scenario Outline → Scenario expander (CommonJS, preserve-indentation)
- * Prinsip:
+ * Fitur:
  * - Pertahankan semua indentasi & spasi apa adanya.
  * - Tag lines disalin ulang PERSIS (outline-level + examples-level).
- * - Tidak menambah/menghapus baris kosong.
+ * - Tambahkan SATU baris kosong setelah setiap Scenario (expanded & non-outline).
  * - Hanya ganti <var> → nilai dari Examples, dan ubah "Scenario Outline:" → "Scenario:".
  */
 
@@ -84,6 +84,7 @@ function expandScenarioOutline(blockLines, outlineTagLinesRaw = []) {
   const outlineIndent = (titleLine.match(/^\s*/) || [""])[0];
   const after = blockLines.slice(titleIdx + 1);
 
+  // Kumpulkan step-lines (sampai ketemu tag/examples berikut)
   const stepLines = [];
   let i = 0, inDoc = false, docFence = null;
   while (i < after.length) {
@@ -99,7 +100,8 @@ function expandScenarioOutline(blockLines, outlineTagLinesRaw = []) {
     stepLines.push(L); i++;
   }
 
-  const exampleBlocks = [];
+  // Kumpulkan Examples blocks (tag-lines RAW)
+  const exampleBlocks = []; // { exTagLinesRaw: string[], tableLines: string[] }
   while (i < after.length) {
     const exTagLinesRaw = [];
     while (i < after.length && isTagLine(after[i])) {
@@ -107,6 +109,7 @@ function expandScenarioOutline(blockLines, outlineTagLinesRaw = []) {
       i++;
     }
     if (i >= after.length) break;
+
     if (!isExamplesLine(after[i])) { i++; continue; }
 
     i++; // skip "Examples:"
@@ -138,16 +141,22 @@ function expandScenarioOutline(blockLines, outlineTagLinesRaw = []) {
     }
 
     parsed.dataRows.forEach((rowMap) => {
+      // 1) cetak tag outline-level & examples-level PERSIS seperti input
       outlineTagLinesRaw.forEach((tagLine) => out.push(tagLine));
       exTagLinesRaw.forEach((tagLine) => out.push(tagLine));
 
+      // 2) judul Scenario (indent sama dgn Scenario Outline)
       const replacedTitle = scenarioTitleText.replace(/<([^>]+)>/g, (_, n) =>
         Object.prototype.hasOwnProperty.call(rowMap, n) ? rowMap[n] : `<${n}>`
       );
       out.push(`${outlineIndent}Scenario: ${replacedTitle}`);
 
+      // 3) steps: copy apa adanya + substitusi <var>
       const concreteSteps = replacePlaceholdersInLines(stepLines, rowMap);
       out.push(...concreteSteps);
+
+      // 4) tambahkan blank line antar skenario
+      out.push("");
     });
   });
 
@@ -158,6 +167,8 @@ function transform(source) {
   const lines = source.replace(/\r\n/g, "\n").split("\n");
   const output = [];
   let idx = 0;
+
+  // Simpan tag lines RAW (termasuk indentasi)
   let pendingTagLinesRaw = [];
 
   const flushPlain = (start, end) => {
@@ -168,30 +179,42 @@ function transform(source) {
   while (idx < lines.length) {
     const line = lines[idx];
 
+    // Kumpulkan tag-lines di atas block
     if (isTagLine(line)) { pendingTagLinesRaw.push(line); idx++; continue; }
 
+    // Passthrough blok non-skenario
     if (isFeatureLine(line) || isBackgroundLine(line) || isRuleLine(line) || isCommentLine(line) || isEmpty(line)) {
       if (pendingTagLinesRaw.length) { takePendingTagsRaw().forEach((t) => output.push(t)); }
       output.push(line); idx++; continue;
     }
 
+    // Scenario biasa → tulis apa adanya + tambahkan blank line
     if (isScenarioLine(line)) {
       if (pendingTagLinesRaw.length) { takePendingTagsRaw().forEach((t) => output.push(t)); }
       const { start, end } = collectScenarioBlock(lines, idx);
-      flushPlain(start, end); idx = end; continue;
+      flushPlain(start, end);
+      output.push(""); // baris kosong antar scenario
+      idx = end;
+      continue;
     }
 
+    // Scenario Outline → expand
     if (isScenarioOutlineLine(line)) {
       const outlineTagLinesRaw = takePendingTagsRaw();
       const { end, blockLines } = collectScenarioBlock(lines, idx);
       const expanded = expandScenarioOutline(blockLines, outlineTagLinesRaw);
-      output.push(...expanded); idx = end; continue;
+      output.push(...expanded);
+      idx = end;
+      continue;
     }
 
+    // Lain-lain → passthrough (juga flush pending tag-lines bila ada)
     if (pendingTagLinesRaw.length) { takePendingTagsRaw().forEach((t) => output.push(t)); }
-    output.push(line); idx++;
+    output.push(line);
+    idx++;
   }
 
+  // Pastikan newline akhir file ada
   return output.join("\n").replace(/\n?$/, "\n");
 }
 
