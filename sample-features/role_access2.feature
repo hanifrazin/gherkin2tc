@@ -1,4 +1,3 @@
-å
 Feature: Checkout Flows
 
     Background:

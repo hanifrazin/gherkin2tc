@@ -14,7 +14,8 @@
   "bin": {
     "grise": "./cli/command-grise.js",
     "pile": "./cli/command-pile.js",
-    "grapite": "./cli/command-grapite.js"
+    "grapite": "./cli/command-grapite.js",
+    "pandkin": "./cli/command-pandkin.js"
   },
   "repository": {
     "type": "git",
