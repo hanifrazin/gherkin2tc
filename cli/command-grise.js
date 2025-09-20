@@ -10,7 +10,14 @@ function printHelp() {
 GRISE – Gherkin UI to Test Case
 
 Usage:
-  grise -i <input> [-o <output.xlsx>] [--outdir <dir>] [--mode sheet|files] [--overwrite] [--no-timestamp] [-q|--quiet]
+  grise -i <input> [-o <output.xlsx>] [--outdir <dir>] [--mode sheet|files] [-q|--quiet]
+
+  Keterangan:
+    * -i / --input   : file .feature atau folder berisi .feature
+    * -o / --output  : nama file .xlsx (opsional, default auto di folder output-testcase)
+    * --outdir       : khusus mode "files", direktori output (default: output)
+    * --mode         : "sheet" (gabung multi-sheet) | "files" (1 file xlsx per .feature)
+    * -q / --quiet   : minimalkan log
 `);
 }
 
@@ -37,8 +44,6 @@ if (has("-h") || has("--help")) {
 const input = getArg("-i", "--input");
 let output = getArg("-o", "--output");
 const outdirOpt = getArg("--outdir");
-const overwrite = has("--overwrite");
-const noTs = has("--no-timestamp");
 const quiet = has("-q") || has("--quiet");
 
 let mode = getArg("--mode") || "sheet";
@@ -59,10 +64,10 @@ if (!fs.existsSync(input)) {
 const isDir = fs.statSync(input).isDirectory();
 
 // ========== HELPERS ==========
-function ts() {
+function tsDay() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
 }
 function ensureXlsx(p) {
   return path.extname(p).toLowerCase() === ".xlsx" ? p : `${p}.xlsx`;
@@ -82,28 +87,19 @@ if (!fs.existsSync(converterPath)) {
   console.error(`Error: Tidak menemukan converter di: ${converterPath}`);
   process.exit(1);
 }
-if (!quiet) console.log(`ℹ️  Converter: ${converterPath}`); // <<— penting agar kelihatan yang dipakai
-/* (ref) */ console.log("NOTE: command-grise.js wrapper loaded."); // keep a tiny marker  [oai_citation:1‡command-grise.js](file-service://file-J29TYnNLVGozp6RXTcqu6r)
+if (!quiet) console.log(`ℹ️  Converter: ${converterPath}`);
+console.log("NOTE: command-grise.js wrapper loaded.");
 
 // ========== FILE MODE ==========
 if (!isDir) {
   const base = path.basename(input, ".feature");
   if (!output) {
-    const filename = noTs ? `${base}.xlsx` : `${base}-${ts()}.xlsx`;
+    const filename = `${base}-${tsDay()}.xlsx`;
     output = path.join("output-testcase", filename);
   }
   output = ensureXlsx(output);
 
-  if (fs.existsSync(output) && !overwrite) {
-    if (!noTs) {
-      const { dir, name } = path.parse(output);
-      output = path.join(dir || ".", `${name}-${ts()}.xlsx`);
-    } else {
-      console.error(`Error: File sudah ada: ${output} (pakai --overwrite atau hilangkan --no-timestamp)`);
-      process.exit(1);
-    }
-  }
-
+  // langsung overwrite kalau ada file di hari yang sama
   ensureDir(path.dirname(output));
   const cmd = `node "${converterPath}" "${input}" -o "${output}" --xlsx`;
   if (!quiet) console.log(`> ${cmd}`);
@@ -121,20 +117,10 @@ if (!isDir) {
 if (mode === "sheet") {
   const base = path.basename(path.resolve(input));
   if (!output) {
-    const filename = noTs ? `${base}.xlsx` : `${base}-${ts()}.xlsx`;
+    const filename = `${base}-${tsDay()}.xlsx`;
     output = path.join("output-testcase", filename);
   }
   output = ensureXlsx(output);
-
-  if (fs.existsSync(output) && !overwrite) {
-    if (!noTs) {
-      const { dir, name } = path.parse(output);
-      output = path.join(dir || ".", `${name}-${ts()}.xlsx`);
-    } else {
-      console.error(`Error: File sudah ada: ${output} (pakai --overwrite atau hilangkan --no-timestamp)`);
-      process.exit(1);
-    }
-  }
 
   ensureDir(path.dirname(output));
   const cmd = `node "${converterPath}" "${input}" -o "${output}" --xlsx`;
@@ -161,20 +147,8 @@ ensureDir(outdir);
 let fails = 0;
 for (const f of featurePaths) {
   const base = path.basename(f, ".feature");
-  let outFile = path.join(outdir, `${base}.xlsx`);
-  if (!noTs) outFile = path.join(outdir, `${base}-${ts()}.xlsx`);
+  let outFile = path.join(outdir, `${base}-${tsDay()}.xlsx`);
   outFile = ensureXlsx(outFile);
-
-  if (fs.existsSync(outFile) && !overwrite) {
-    if (!noTs) {
-      const { dir, name } = path.parse(outFile);
-      outFile = path.join(dir, `${name}-${ts()}.xlsx`);
-    } else {
-      console.error(`⚠️  Skip (sudah ada & --no-timestamp): ${outFile}`);
-      fails++;
-      continue;
-    }
-  }
 
   ensureDir(path.dirname(outFile));
   const cmd = `node "${converterPath}" "${f}" -o "${outFile}" --xlsx`;
