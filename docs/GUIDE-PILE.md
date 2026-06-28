@@ -19,7 +19,7 @@ npm install
 npm link
 ```
 
-Tanpa `npm link`, jalankan via `node cli/command-pile.js`.
+Tanpa `npm link`, jalankan via `node src/cli/command-pile.js`.
 
 ## Cara Kerja Singkat
 - Membaca satu atau banyak file `.xlsx/.csv`.
@@ -30,7 +30,7 @@ Tanpa `npm link`, jalankan via `node cli/command-pile.js`.
   - Nilai boolean `true/false` di-normalisasi jadi huruf kapital (`TRUE/FALSE`).
   - Karakter `|` diisi data akan di-escape otomatis.
 
-Hasil akhirnya: satu file `.feature` per input, disimpan di folder output default `output-pipe-tables/` dengan nama `<namaFile>_YYYYMMDD_HHmmss.feature`.
+Hasil akhirnya: satu file `.feature` per input, disimpan di folder output default `outputs/piles/` dengan nama `<namaFile>_YYYYMMDD_HHmmss.feature`.
 
 ## Opsi CLI (`pile`) – *dari* `cli/command-pile.js`
 ```bash
@@ -50,7 +50,7 @@ pile [options]
 > File sementara Excel seperti `~$xxxx.xlsx` otomatis **di-skip**.
 
 ### Opsi yang diteruskan ke converter `pipe-table.js`
-- **`--out-dir <dir>`**: folder output (default: `output-pipe-tables`).
+- **`--out-dir <dir>`**: folder output (default: `outputs/piles`).
 - **`--indent <n>`**: jumlah spasi sebelum tanda `|` (default: `4`).
 - **`--columns <cols>`**: whitelist kolom (nama **atau** `#index`), contoh:  
   - `--columns "user,pass"` (berdasarkan header)  
@@ -68,39 +68,39 @@ pile [options]
   - Menangani **header hilang** (`--no-header`) dengan membuat header `c0, c1, ...`.
   - Nilai `"true"/"false"` → `TRUE/FALSE`.
   - Nilai `NaN`/kosong dianggap **empty**, baris kosong akan di-skip.
-- Output per file masuk ke: `<out-dir>/<base>_<timestamp>.feature`.
+- Output per file masuk ke: `<out-dir>/<base>_<timestamp>.feature` (default: `outputs/piles/`).
 
 ## Contoh Penggunaan (Dasar → Spesifik)
 
 ### A. Satu file Excel → satu `.feature`
 ```bash
-pile -i sample_data/login.xlsx
-# hasil: output-pipe-tables/login_20250823_160102.feature
+pile -i samples/data/login.xlsx
+# hasil: outputs/piles/login_20250823_160102.feature
 ```
 
 ### B. Banyak file sekaligus (variadic)
 ```bash
-pile -i sample_data/login.xlsx sample_data/register.csv
+pile -i samples/data/login.xlsx samples/data/register.csv
 ```
 
 ### C. Satu folder (non‑recursive)
 ```bash
-pile -d sample_data
+pile -d samples/data
 ```
 
 ### D. Satu folder (recursive) + filter ekstensi
 ```bash
-pile -d sample_data -r --ext xlsx,csv
+pile -d samples/data -r --ext xlsx,csv
 ```
 
 ### E. Whitelist kolom dan masking
 ```bash
-pile -i sample_data/users.xlsx --columns "user,pass" --mask "pass"
+pile -i samples/data/users.xlsx --columns "user,pass" --mask "pass"
 ```
 
 ### F. Tanpa header pertama + set indent + table gap
 ```bash
-pile -i sample_data/raw.csv --no-header --indent 2 --table-gap 2
+pile -i samples/data/raw.csv --no-header --indent 2 --table-gap 2
 ```
 
 ## Tips & Best Practice untuk QA
@@ -111,7 +111,7 @@ pile -i sample_data/raw.csv --no-header --indent 2 --table-gap 2
 
 ## Troubleshooting
 - **“Tidak ada file ditemukan”** → pastikan pakai `-i` atau `-d`, dan ekstensi file termasuk dalam `--ext`.
-- **Output tidak muncul** → cek folder `output-pipe-tables` dan nama file yang dilengkapi timestamp.
+- **Output tidak muncul** → cek folder `outputs/piles` dan nama file yang dilengkapi timestamp.
 - **Kolom tidak termasking** → ingat bahwa `--mask` bekerja **setelah** seleksi `--columns`. Pastikan nama header sama (case-insensitive) dengan yang Anda masukkan.
 
 ## Bantuan

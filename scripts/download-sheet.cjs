@@ -15,6 +15,7 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const ExcelJS = require('exceljs');
+const { printSuccess, printError, printInfo } = require('../src/cli/colorize.cjs');
 
 /* -------------------- CLI PARSER -------------------- */
 const argv = process.argv.slice(2);
@@ -46,14 +47,14 @@ const TIMEOUT      = parseInt(arg('timeout') || '30000', 10);
 if (CRED_PATH) {
   const full = path.resolve(process.cwd(), CRED_PATH);
   if (!fs.existsSync(full)) {
-    console.error(`❌ Credential not found: ${full}`);
+    printError(`Credential not found: ${full}`);
     process.exit(1);
   }
   let cfg;
   try {
     cfg = JSON.parse(fs.readFileSync(full, 'utf8'));
   } catch (e) {
-    console.error('❌ Failed to parse credential JSON:', e.message);
+    printError('Failed to parse credential JSON: ' + e.message);
     process.exit(1);
   }
 
@@ -88,7 +89,7 @@ function sanitizeFilename(s) {
 let finalOut = OUT_PATH;
 if (!finalOut) {
   const base = sanitizeFilename(SHEET_NAME);
-  const dir  = OUT_DIR || path.join(process.cwd(), 'output');
+  const dir  = OUT_DIR || path.join(process.cwd(), 'outputs');
   finalOut   = path.join(dir, `${FILE_PREFIX}${base}${FILE_SUFFIX}.xlsx`);
 }
 
@@ -134,9 +135,9 @@ function requestJson(url, { method='GET', timeout=30000, token, sheetName } = {}
     // Log aman (hapus token dari URL)
     const safeUrl = new URL(u.toString());
     safeUrl.searchParams.delete('token');
-    console.log('➡️  URL     :', safeUrl.toString());
-    console.log('➡️  Method  :', method);
-    console.log('➡️  Source  :', sheetName);
+    printInfo('URL: ' + safeUrl.toString());
+    printInfo('Method: ' + method);
+    printInfo('Source: ' + sheetName);
 
     const req = lib.request(opts, (res) => {
       // Redirect?
@@ -204,12 +205,12 @@ async function writeXlsx(aoa, outPath, sheetTitle) {
 (async () => {
   try {
     if (!WEBAPP_URL) {
-      console.error('❌ webAppUrl is required (via --url or credentials).');
+      printError('webAppUrl is required (via --url or credentials).');
       process.exit(1);
     }
 
     // log asal sheet (untuk verifikasi CLI override)
-    console.log('➡️  Sheet in use :', SHEET_NAME, CLI_SHEET ? '(from CLI)' : '(from credentials)');
+    printInfo('Sheet: ' + SHEET_NAME + (CLI_SHEET ? ' (from CLI)' : ' (from credentials)'));
 
     const tabTitle = sanitizeFilename(RENAME_SHEET || SHEET_NAME).slice(0, 31);
     const aoa = await requestJson(
@@ -222,12 +223,12 @@ async function writeXlsx(aoa, outPath, sheetTitle) {
       throw new Error(String(aoa.error));
     }
 
-    console.log('➡️  OutFile :', finalOut);
+    printInfo('OutFile: ' + finalOut);
     await writeXlsx(aoa, finalOut, tabTitle);
-    console.log(`✅ Saved Excel: ${finalOut}`);
+    printSuccess(`Saved Excel: ${finalOut}`);
 
   } catch (err) {
-    console.error('❌ Error:', err.message || err);
+    printError('Error: ' + (err.message || err));
     process.exit(1);
   }
 })();

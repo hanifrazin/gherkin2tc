@@ -14,7 +14,7 @@ Dokumen ini adalah panduan resmi penggunaan **download-sheet.cjs**, sebuah CLI N
    Disarankan menggunakan versi 14 ke atas.
 
 2. **Clone / Download Project**  
-   Pastikan file `download-sheet.cjs` sudah ada di dalam folder project Anda.
+   Pastikan file `scripts/download-sheet.cjs` sudah ada di dalam folder project Anda.
 
 3. **Install dependency**  
    Jalankan sekali saja di root project:
@@ -32,7 +32,7 @@ Dokumen ini adalah panduan resmi penggunaan **download-sheet.cjs**, sebuah CLI N
      "token": "ISI_TOKEN_RAHASIA_ANDA",
      "defaultSheetName": "NAMA_SHEET_ANDA",
      "method": "GET",
-     "outDir": "./output",
+     "outDir": "./outputs",
      "autoName": true,
      "filenamePrefix": "",
      "filenameSuffix": "",
@@ -60,7 +60,12 @@ Dokumen ini adalah panduan resmi penggunaan **download-sheet.cjs**, sebuah CLI N
 Jalankan dengan perintah:
 
 ```bash
-node download-sheet.cjs [opsi]
+node scripts/download-sheet.cjs [opsi]
+```
+
+Atau via npm script:
+```bash
+npm run download -- "NamaSheet"
 ```
 
 ---
@@ -88,7 +93,7 @@ node download-sheet.cjs [opsi]
 
 ### 1. Jalankan dengan credential file (paling ringkas)
 ```bash
-node download-sheet.cjs --cred ./credentials.local.json
+node scripts/download-sheet.cjs --cred ./credentials.local.json
 ```
 Output: `./output/NAMA_SHEET_ANDA.xlsx`
 
@@ -96,7 +101,7 @@ Output: `./output/NAMA_SHEET_ANDA.xlsx`
 
 ### 2. Ambil sheet lain (nama file ikut berubah)
 ```bash
-node download-sheet.cjs --cred ./credentials.local.json --sheet "Sheet2"
+node scripts/download-sheet.cjs --cred ./credentials.local.json --sheet "Sheet2"
 ```
 Output: `./output/Sheet2.xlsx`
 
@@ -104,14 +109,14 @@ Output: `./output/Sheet2.xlsx`
 
 ### 3. Override path output (absolute path)
 ```bash
-node download-sheet.cjs --cred ./credentials.local.json   --out "/Users/user/Desktop/gherkin2tc/data-test/Product-Biller.xlsx"
+node scripts/download-sheet.cjs --cred ./credentials.local.json   --out "/Users/user/Desktop/gherkin2tc/data-test/Product-Biller.xlsx"
 ```
 
 ---
 
 ### 4. Custom folder + prefix + suffix
 ```bash
-node download-sheet.cjs --cred ./credentials.local.json   --sheet "Product-Biller"   --out-dir "/Users/user/Desktop/gherkin2tc/data-test"   --prefix "TC-"   --suffix "-QA"
+node scripts/download-sheet.cjs --cred ./credentials.local.json   --sheet "Product-Biller"   --out-dir "/Users/user/Desktop/gherkin2tc/data-test"   --prefix "TC-"   --suffix "-QA"
 ```
 Output: `/Users/user/Desktop/gherkin2tc/data-test/TC-Product-Biller-QA.xlsx`
 
@@ -119,7 +124,7 @@ Output: `/Users/user/Desktop/gherkin2tc/data-test/TC-Product-Biller-QA.xlsx`
 
 ### 5. Rename judul tab di workbook Excel
 ```bash
-node download-sheet.cjs --cred ./credentials.local.json   --sheet "Sheet2"   --rename-sheet "Billing-Aug"
+node scripts/download-sheet.cjs --cred ./credentials.local.json   --sheet "Sheet2"   --rename-sheet "Billing-Aug"
 ```
 Output file: `./output/Sheet2.xlsx`  
 Judul tab di Excel: `Billing-Aug`
@@ -128,7 +133,7 @@ Judul tab di Excel: `Billing-Aug`
 
 ### 6. Override URL & Token langsung dari CLI
 ```bash
-node download-sheet.cjs   --url "https://script.google.com/macros/s/AKfycbxEXAMPLE/exec"   --token "MYTOKEN123"   --sheet "Product-Biller"
+node scripts/download-sheet.cjs   --url "https://script.google.com/macros/s/AKfycbxEXAMPLE/exec"   --token "MYTOKEN123"   --sheet "Product-Biller"
 ```
 
 ---

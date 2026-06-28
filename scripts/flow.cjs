@@ -3,16 +3,17 @@
  * flow.cjs (robust, cross-platform)
  * Orchestrates:
  *   1) download-sheet.cjs --cred ./credentials.json --sheet <NAME>
- *   2) pile -i data-test/<NAME>.xlsx   (fallback: node cli/command-pile.js)
+ *   2) pile -i outputs/flow-data/<NAME>.xlsx   (fallback: node src/cli/command-pile.js)
  *
  * Accepts sheet name with spaces via:
  *   npm run flow -- "Product Bank"
- *   node flow.cjs -- "Product Bank"
- *   node flow.cjs --sheet "Product Bank"
+ *   node scripts/flow.cjs -- "Product Bank"
+ *   node scripts/flow.cjs --sheet "Product Bank"
  */
 const { spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { printSuccess, printError, printWarn, printInfo } = require('../src/cli/colorize.cjs');
 
 const argv = process.argv.slice(2);
 
@@ -53,7 +54,7 @@ if (!sheet) {
   }
 }
 
-const outDir = path.join(process.cwd(), 'data-test');
+const outDir = path.join(process.cwd(), 'outputs', 'flow-data');
 const outXlsx = path.join(outDir, `${sheet}.xlsx`);
 
 fs.mkdirSync(outDir, { recursive: true });
@@ -62,34 +63,32 @@ function run(cmd, args, opts = {}) {
   return spawnSync(cmd, args, { stdio: 'inherit', ...opts });
 }
 
-console.log(`➡️  [1/2] Download sheet "${sheet}" → ${outXlsx}`);
+printInfo('[1/2] Download sheet "' + sheet + '" → ' + outXlsx);
 {
   const r = run(process.execPath, [
-    path.join(process.cwd(), 'download-sheet.cjs'),
+    path.join(process.cwd(), 'scripts', 'download-sheet.cjs'),
     '--cred', path.join(process.cwd(), 'credentials.json'),
     '--sheet', sheet,
     '--out', outXlsx
   ]);
   if (r.status !== 0) {
-    console.error('❌ Download gagal.');
+    printError('Download gagal.');
     process.exit(r.status || 1);
   }
 }
 
-console.log(`➡️  [2/2] Jalankan PILE: pile -i ${outXlsx}`);
+printInfo('[2/2] Jalankan PILE: pile -i ' + outXlsx);
 {
   // Try global "pile"
   let r = run('pile', ['-i', outXlsx]);
   if (r.error || r.status !== 0) {
-    console.warn('⚠️  "pile" global tidak ditemukan/bermasalah. Fallback: node cli/command-pile.js');
-    r = run(process.execPath, [path.join(process.cwd(), 'cli', 'command-pile.js'), outXlsx]);
+    printWarn('"pile" global tidak ditemukan/bermasalah. Fallback: node src/cli/command-pile.js');
+    r = run(process.execPath, [path.join(process.cwd(), 'src', 'cli', 'command-pile.js'), '-i', outXlsx]);
     if (r.status !== 0) {
-      console.error('❌ PILE gagal.');
+      printError('PILE gagal.');
       process.exit(r.status || 1);
     }
   }
 }
 
-console.log('✅ Flow selesai.');
-// console.log('   XLSX   :', outXlsx);
-// console.log('   Feature:', outXlsx.replace(/\.xlsx$/, '.feature'));
+printSuccess('Flow selesai.');

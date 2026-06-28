@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * command-grapite.js
- * CLI wrapper untuk converter API → Excel (grapite)
+ * CLI wrapper untuk converter API → Excel
  *
  * Usage:
  *   grapite -i <path/to/file_or_dir> -o <out.xlsx> [--xlsx]
@@ -10,19 +10,23 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { highlight, dim, header, printSuccess, printError, path: colorPath } = require('./colorize.cjs');
 
 function printHelp() {
   console.log(`
-grapite -i <file.feature|dir> -o <out.xlsx> [--xlsx]
+${header('grapite — Gherkin API to Excel')}
 
-Options:
-  -i, --input    Path file .feature atau direktori yang berisi .feature
-  -o, --out      Output .xlsx (default: api-testcases.xlsx)
-  --xlsx         Paksa fallback lib "xlsx" jika "exceljs" tidak tersedia
+${dim('Usage:')}
+  grapite ${dim('-i <file.feature|dir>')} ${dim('-o <out.xlsx>')} [${dim('--xlsx')}]
 
-Examples:
-  grapite -i sample_features/api -o output/api.xlsx
-  grapite -i sample_features/api-sample.feature
+${dim('Options:')}
+  ${highlight('-i, --input')}    Path file .feature atau direktori berisi .feature
+  ${highlight('-o, --out')}      Output .xlsx (default: ${dim('api-testcases.xlsx')})
+  ${highlight('--xlsx')}         Paksa fallback lib "${dim('xlsx')}" jika "${dim('exceljs')}" tidak tersedia
+
+${dim('Examples:')}
+  grapite ${dim('-i samples/features/api -o outputs/testcase-api/api.xlsx')}
+  grapite ${dim('-i samples/features/api-sample.feature')}
 `);
 }
 
@@ -43,15 +47,13 @@ function parseArgv(argv) {
   const args = parseArgv(process.argv);
   if (!args.input) {
     printHelp();
-    process.exit(1);
+    process.exit(0);
   }
 
-  // ⬇️ sesuaikan ke nama file barumu
   const converterPath = path.join(__dirname, '..', 'converter', 'gherkin-api.cjs');
 
   if (!fs.existsSync(converterPath)) {
-    console.error('Converter tidak ditemukan:', converterPath);
-    console.error('Pastikan file ada di converter/gherkin-api.cjs');
+    printError(`Converter tidak ditemukan: ${converterPath}`);
     process.exit(1);
   }
 
@@ -59,5 +61,12 @@ function parseArgv(argv) {
   if (args.forceXlsx) childArgs.push('--xlsx');
 
   const child = spawn(process.execPath, childArgs, { stdio: 'inherit' });
-  child.on('exit', (code) => process.exit(code));
+
+  child.on('close', (code) => {
+    if (code === 0) {
+      printSuccess(`Selesai → ${colorPath(args.out)}`);
+    } else {
+      process.exit(code);
+    }
+  });
 })();

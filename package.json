@@ -1,32 +1,28 @@
 {
-  "dependencies": {
-    "@cucumber/cucumber": "^12.2.0",
-    "commander": "^14.0.0",
-    "exceljs": "^4.4.0",
-    "gherkin-lint": "^4.2.4",
-    "googleapis": "^157.0.0",
-    "xlsx": "^0.18.5"
-  },
   "name": "gherkin2tc",
   "version": "1.0.0",
-  "description": "- Node.js LTS v22.14.0   - Microsoft Excel - Visual Studio Code",
-  "main": "command.js",
+  "description": "CLI tools untuk konversi Gherkin (.feature) ke Excel test case dan sebaliknya",
   "bin": {
-    "grise": "./cli/command-grise.js",
-    "pile": "./cli/command-pile.js",
-    "grapite": "./cli/command-grapite.js",
-    "pandkin": "./cli/command-pandkin.js"
+    "grise": "./src/cli/command-grise.js",
+    "pile": "./src/cli/command-pile.js",
+    "grapite": "./src/cli/command-grapite.js",
+    "pandkin": "./src/cli/command-pandkin.js"
+  },
+  "scripts": {
+    "download": "node scripts/download-sheet.cjs --cred ./credentials.json --sheet",
+    "pile": "pile -i",
+    "flow": "node scripts/flow.cjs --"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "exceljs": "^4.4.0",
+    "xlsx": "^0.18.5"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hanifrazin/gherkin2tc.git"
   },
-  "scripts": {
-    "download": "node download-sheet.cjs --cred ./credentials.json --sheet",
-    "pile": "pile -i",
-    "flow": "node flow.cjs --"
-  },
-  "keywords": [],
+  "keywords": ["gherkin", "cucumber", "test-case", "excel", "cli"],
   "author": "",
   "license": "ISC",
   "bugs": {

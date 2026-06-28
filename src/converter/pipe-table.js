@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const xlsx = require("xlsx");
 const { program } = require("commander");
+const { printError } = require("../cli/colorize.cjs");
 
 function ts() {
   const d = new Date(), p = n => String(n).padStart(2,"0");
@@ -108,14 +109,14 @@ program
   .name("gherkin-table")
   .description("Convert Excel/CSV → one .feature (all sheets), with '# Sheet: <name>' and multiple Examples")
   .argument("<file>", "path ke .xlsx/.csv")
-  .option("--out-dir <dir>", "folder output", "output-piles")
+  .option("--out-dir <dir>", "folder output", "outputs/piles")
   .option("--indent <n>", "spasi indent sebelum '|'", "4")
   .option("--columns <cols>", "whitelist kolom (nama atau #index), koma-separated")
   .option("--mask <cols>", "mask kolom sensitif (berdasarkan header yang sudah terseleksi), koma-separated")
   .option("--no-header", "anggap baris pertama tiap tabel bukan header")
   .option("--table-gap <n>", "jumlah baris kosong sebagai pemisah tabel", "1")
   .action((file, opts) => {
-    if (!fs.existsSync(file)) { console.error("File tidak ditemukan:", file); process.exit(1); }
+    if (!fs.existsSync(file)) { printError("File tidak ditemukan: " + file); process.exit(1); }
 
     const wb = xlsx.readFile(file, {cellDates:false, cellNF:false, cellText:false});
     const sheets = wb.SheetNames;
@@ -166,7 +167,6 @@ program
 
     const finalText = (outLines.join("\n").trimEnd() + "\n");
     fs.writeFileSync(outPath, finalText);
-    console.log(`✔ Output tersimpan: ${outPath}`);
   });
 
 program.parse();

@@ -31,51 +31,55 @@ Agar perintah `grise` bisa dipanggil langsung di terminal:
 ```bash
 npm link
 ```
-> Tanpa `npm link`, Anda tetap bisa menjalankannya via `node cli/command-grise.js`.
+> Tanpa `npm link`, Anda tetap bisa menjalankannya via `node src/cli/command-grise.js`.
 
 ## Struktur Proyek
 ```
 .
-├─ cli/
-│  ├─ command-grise.js     ← wrapper CLI untuk converter/gherkin-ui.cjs
-│  └─ command-pile.js
-├─ converter/
-│  ├─ gherkin-ui.cjs       ← converter utama Gherkin → Excel
-│  └─ pipe-table.js
-├─ output/                 ← hasil .xlsx (default)
-├─ sample_features/        ← contoh file .feature
-├─ package.json
-└─ ...
+├─ src/
+│  ├─ cli/
+│  │  ├─ command-grise.js    ← wrapper CLI untuk converter/gherkin-ui.cjs
+│  │  ├─ command-pile.js     ← Pipe Table converter
+│  │  ├─ command-pandkin.js  ← Gherkin Outline expander
+│  │  └─ command-grapite.js  ← Gherkin API → Excel
+│  └─ converter/
+│     ├─ gherkin-ui.cjs      ← converter utama Gherkin → Excel
+│     ├─ gherkin-api.cjs     ← converter API Gherkin → Excel
+│     ├─ gherkin-outline-expander.cjs
+│     └─ pipe-table.js
+├─ scripts/
+│  ├─ download-sheet.cjs    ← Download Google Sheet → Excel
+│  └─ flow.cjs              ← Orchestrator (download + pile)
+├─ samples/
+│  └─ features/             ← contoh file .feature
+├─ outputs/                 ← hasil .xlsx (default)
+└─ package.json
 ```
 
 ## Penggunaan Singkat
 ```bash
-grise -i <input> [-o <output.xlsx>] [--outdir <dir>] [--mode sheet|files] [--overwrite] [--no-timestamp] [-q|--quiet]
+grise -i <input> [-o <output.xlsx>] [--mode sheet|files] [-v]
 ```
 
 - **`-i, --input`** (wajib): path ke **file `.feature`** atau **folder** yang berisi `.feature`.
-- **`-o, --output`**: path output **file `.xlsx`**.
-  - Dipakai untuk **input file** atau **mode `sheet`** (gabung ke satu workbook).
-- **`--outdir`**: folder output ketika **mode `files`** (default: `output/`).
+- **`-o, --output`**: path output **file `.xlsx`** (opsional, otomatis di folder `outputs/testcase/`).
 - **`--mode`**: ketika input berupa **folder**:
   - `sheet` → gabung semua `.feature` menjadi **satu workbook** (tiap file menjadi **satu sheet**).
   - `files` → hasilkan **banyak `.xlsx`** (satu per `.feature`).
   - default: `sheet`.
-- **`--overwrite`**: izinkan menimpa file output (tanpa menambah timestamp).
-- **`--no-timestamp`**: nonaktifkan penambahan timestamp otomatis *jika* nama file bentrok.
-- **`-q, --quiet`**: minimalkan log.
+- **`-v`**: tampilkan log detail proses (verbose).
 - **`-h, --help`**: tampilkan bantuan.
 
 > Semua opsi di atas diambil langsung dari file `cli/command-grise.js` sehingga tidak ada opsi yang terlewat.
 
 ## Perilaku Default Output
 - **Input = file**:
-  - tanpa `-o` → `output/<namaFile>-YYYYMMDD_HHmmss.xlsx`
+  - tanpa `-o` → `outputs/testcase/<namaFile>-YYYYMMDD.xlsx`
 - **Input = folder, `--mode sheet`**:
-  - tanpa `-o` → `output/<namaFolder>-YYYYMMDD_HHmmss.xlsx`
+  - tanpa `-o` → `outputs/testcase/<namaFolder>-YYYYMMDD.xlsx`
 - **Input = folder, `--mode files`**:
-  - abaikan `-o`, gunakan `--outdir` (default `output/`)
-  - tiap `.feature` → `<outdir>/<namaFeature>-YYYYMMDD_HHmmss.xlsx`
+  - abaikan `-o`, gunakan `--outdir` (default `outputs/testcase/`)
+  - tiap `.feature` → `<outdir>/<namaFeature>-YYYYMMDD.xlsx`
 
 > Folder output dibuat otomatis jika belum ada.
 
@@ -83,38 +87,33 @@ grise -i <input> [-o <output.xlsx>] [--outdir <dir>] [--mode sheet|files] [--ove
 
 ### A. Konversi satu file `.feature`
 ```bash
-grise -i sample_features/login.feature
-# hasil: output/login-20250823_153000.xlsx (nama & timestamp ilustrasi)
+grise -i samples/features/login.feature
+# hasil: outputs/testcase/login-20260628.xlsx (timestamp otomatis)
 ```
 
 Dengan nama output custom:
 ```bash
-grise -i sample_features/login.feature -o output/login.xlsx
-```
-
-Timpa file (tanpa timestamp):
-```bash
-grise -i sample_features/login.feature -o output/login.xlsx --overwrite --no-timestamp
+grise -i samples/features/login.feature -o outputs/testcase/login.xlsx
 ```
 
 ### B. Konversi satu folder → **satu workbook** (multi‑sheet)
 ```bash
-grise -i sample_features --mode sheet -o output/all-features.xlsx
+grise -i samples/features --mode sheet -o outputs/testcase/all-features.xlsx
 ```
 
 Tanpa `-o` (otomatis timestamp):
 ```bash
-grise -i sample_features --mode sheet
+grise -i samples/features --mode sheet
 ```
 
 ### C. Konversi satu folder → **banyak file** (satu per feature)
 ```bash
-grise -i sample_features --mode files --outdir output/features
+grise -i samples/features --mode files --outdir outputs/testcase
 ```
 
-Dengan log minimal:
+Dengan log detail:
 ```bash
-grise -i sample_features --mode files --outdir output/features -q
+grise -i samples/features --mode files --outdir outputs/testcase -v
 ```
 
 ## Format Excel (yang dihasilkan converter)

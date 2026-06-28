@@ -19,11 +19,12 @@
 
 const fs = require('fs');
 const path = require('path');
+const { printError, printWarn } = require('../cli/colorize.cjs');
 
 /* ---------- CLI args ---------- */
 const args = process.argv.slice(2);
 if (args.length === 0) {
-  console.error('Usage: node gherkin-api.cjs <file.feature|dir> -o <out.xlsx> [--xlsx]');
+  printError('Usage: node gherkin-api.cjs <file.feature|dir> -o <out.xlsx> [--xlsx]');
   process.exit(1);
 }
 
@@ -38,7 +39,7 @@ for (let i = 0; i < args.length; i++) {
   if (a === '--xlsx') forceXlsx = true;
 }
 if (!inputPath) {
-  console.error('Error: input path is required.');
+  printError('Error: input path is required.');
   process.exit(1);
 }
 
@@ -49,7 +50,7 @@ if (!inputPath) {
  * Jika user kasih -o <path/namafile.xlsx>, kita ambil basename-nya saja,
  * lalu simpan ke dalam folder ini.
  */
-const OUT_DIR = path.resolve(process.cwd(), 'output-testcase-api');
+const OUT_DIR = path.resolve(process.cwd(), 'outputs', 'testcase-api');
 
 function ensureOutDir() {
   try {
@@ -57,8 +58,8 @@ function ensureOutDir() {
       fs.mkdirSync(OUT_DIR, { recursive: true });
     }
   } catch (e) {
-    console.error('Gagal membuat folder output:', OUT_DIR);
-    console.error(e.message);
+    printError('Gagal membuat folder output: ' + OUT_DIR);
+    printError(e.message);
     process.exit(1);
   }
 }
@@ -101,11 +102,55 @@ function extractStep(line, lastBase) {
   return { keyword: kw, keywordBase: base, text: (m[2] || '').trim() };
 }
 
+/* ---------- Parser helpers (module-level, menerima lines + state { i }) ---------- */
+
+function attachDocString(targetArr, lines, idx) {
+  const buf = [];
+  idx.i++; // skip opening """
+  while (idx.i < lines.length && !/^\s*"""/.test(lines[idx.i])) {
+    buf.push(lines[idx.i].replace(/\r$/, ''));
+    idx.i++;
+  }
+  if (idx.i < lines.length) idx.i++; // closing """
+  if (targetArr && targetArr.length) {
+    targetArr[targetArr.length - 1].text += '\n' + '"""' + '\n' + buf.join('\n') + '\n' + '"""';
+  }
+}
+
+function attachTableRow(targetArr, lines, idx) {
+  if (targetArr && targetArr.length) {
+    targetArr[targetArr.length - 1].text += '\n' + clean(lines[idx.i]);
+  }
+  idx.i++;
+}
+
+function parseBackgroundBlock(targetArr, lines, idx) {
+  let last = null;
+  while (idx.i < lines.length) {
+    const raw = lines[idx.i];
+    const cur = clean(raw);
+    if (!cur || cur.startsWith('#')) { idx.i++; continue; }
+    if (/^\s*(Scenario(?: Outline)?:|Example:|Feature:|Background:|Examples:|Rule:)/i.test(cur)) break;
+
+    if (/^\s*"""/.test(raw)) { attachDocString(targetArr, lines, idx); continue; }
+    if (/^\s*\|/.test(raw))  { attachTableRow(targetArr, lines, idx); continue; }
+
+    if (isStep(cur)) {
+      const st = extractStep(cur, last);
+      last = st.keywordBase;
+      targetArr.push(st);
+      idx.i++; continue;
+    }
+    idx.i++;
+  }
+}
+
 /* ---------- Parser (Feature/Rule/Background/Scenario/Outline/Examples) ---------- */
 const RE_SC_HEAD = /^\s*(Scenario(?: Outline)?:|Example:)\s*(.+)$/i;
 
 function parseFeatureFile(text, filename) {
   const lines = text.split(/\r?\n/);
+  const idx = { i: 0 };
 
   let feature = '', featureTags = [];
   let featureBg = [];
@@ -113,72 +158,32 @@ function parseFeatureFile(text, filename) {
 
   const scenarios = [];
   let danglingTags = [];
-  let i = 0;
 
-  function attachDocStringTo(targetArr) {
-    const buf = [];
-    i++; // skip opening """
-    while (i < lines.length && !/^\s*"""/.test(lines[i])) {
-      buf.push(lines[i].replace(/\r$/, ''));
-      i++;
-    }
-    if (i < lines.length) i++; // closing """
-    if (targetArr && targetArr.length) {
-      targetArr[targetArr.length - 1].text += '\n' + '"""' + '\n' + buf.join('\n') + '\n' + '"""';
-    }
-  }
-  function attachTableRowTo(targetArr) {
-    if (targetArr && targetArr.length) {
-      targetArr[targetArr.length - 1].text += '\n' + clean(lines[i]);
-    }
-    i++;
-  }
-  function parseBackgroundBlock(targetArr) {
-    let last = null;
-    while (i < lines.length) {
-      const raw = lines[i];
-      const cur = clean(raw);
-      if (!cur || cur.startsWith('#')) { i++; continue; }
-      if (/^\s*(Scenario(?: Outline)?:|Example:|Feature:|Background:|Examples:|Rule:)/i.test(cur)) break;
-
-      if (/^\s*"""/.test(raw)) { attachDocStringTo(targetArr); continue; }
-      if (/^\s*\|/.test(raw))  { attachTableRowTo(targetArr); continue; }
-
-      if (isStep(cur)) {
-        const st = extractStep(cur, last);
-        last = st.keywordBase;
-        targetArr.push(st);
-        i++; continue;
-      }
-      i++;
-    }
-  }
-
-  while (i < lines.length) {
-    const raw = lines[i];
+  while (idx.i < lines.length) {
+    const raw = lines[idx.i];
     const ln  = clean(raw);
-    if (!ln || ln.startsWith('#')) { i++; continue; }
+    if (!ln || ln.startsWith('#')) { idx.i++; continue; }
 
-    if (ln.startsWith('@')) { danglingTags = ln.split(/\s+/).filter(Boolean); i++; continue; }
+    if (ln.startsWith('@')) { danglingTags = ln.split(/\s+/).filter(Boolean); idx.i++; continue; }
 
     if (/^\s*Feature:/i.test(ln)) {
       feature = ln.replace(/^\s*Feature:\s*/i, '').trim();
       if (danglingTags.length) { featureTags = danglingTags.slice(); danglingTags = []; }
       currentRule = ''; ruleTags = []; ruleBg = [];
-      i++; continue;
+      idx.i++; continue;
     }
 
     if (/^\s*Rule:/i.test(ln)) {
       currentRule = ln.replace(/^\s*Rule:\s*/i, '').trim();
       ruleTags = danglingTags.slice(); danglingTags = [];
       ruleBg = [];
-      i++; continue;
+      idx.i++; continue;
     }
 
     if (/^\s*Background:/i.test(ln)) {
-      i++;
-      if (currentRule) parseBackgroundBlock(ruleBg);
-      else parseBackgroundBlock(featureBg);
+      idx.i++;
+      if (currentRule) parseBackgroundBlock(ruleBg, lines, idx);
+      else parseBackgroundBlock(featureBg, lines, idx);
       continue;
     }
 
@@ -189,30 +194,30 @@ function parseFeatureFile(text, filename) {
       const isOutline = /Outline/i.test(head);
       const type = isOutline ? 'Scenario Outline' : 'Scenario';
       const scTags = danglingTags.slice(); danglingTags = [];
-      i++;
+      idx.i++;
 
       const steps = [];
       const examples = [];
       let last = null;
 
-      while (i < lines.length) {
-        const raw2 = lines[i];
+      while (idx.i < lines.length) {
+        const raw2 = lines[idx.i];
         const cur2 = clean(raw2);
 
         if (/^\s*@/.test(cur2) || /^\s*Feature:/i.test(cur2) || /^\s*Background:/i.test(cur2) || /^\s*Rule:/i.test(cur2) || RE_SC_HEAD.test(cur2)) break;
-        if (!cur2 || cur2.startsWith('#')) { i++; continue; }
+        if (!cur2 || cur2.startsWith('#')) { idx.i++; continue; }
 
         if (/^\s*Examples:/i.test(cur2)) {
-          i++;
+          idx.i++;
           const rows = [];
-          while (i < lines.length) {
-            const tRaw = lines[i];
+          while (idx.i < lines.length) {
+            const tRaw = lines[idx.i];
             const t = clean(tRaw);
-            if (!t || t.startsWith('#')) { i++; continue; }
+            if (!t || t.startsWith('#')) { idx.i++; continue; }
             if (/^\s*\|/.test(tRaw)) {
               const cells = tRaw.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(s => s.trim());
               rows.push(cells);
-              i++; continue;
+              idx.i++; continue;
             }
             break;
           }
@@ -220,7 +225,7 @@ function parseFeatureFile(text, filename) {
             const hdr = rows[0];
             for (let r = 1; r < rows.length; r++) {
               const obj = {};
-              hdr.forEach((h, idx) => obj[h] = rows[r][idx] ?? '');
+              hdr.forEach((h, ci) => obj[h] = rows[r][ci] ?? '');
               Object.defineProperty(obj, '__hdr', { value: hdr.slice(), enumerable: false, writable: false });
               examples.push(obj);
             }
@@ -228,17 +233,17 @@ function parseFeatureFile(text, filename) {
           continue;
         }
 
-        if (/^\s*"""/.test(raw2)) { attachDocStringTo(steps); continue; }
-        if (/^\s*\|/.test(raw2))  { attachTableRowTo(steps); continue; }
+        if (/^\s*"""/.test(raw2)) { attachDocString(steps, lines, idx); continue; }
+        if (/^\s*\|/.test(raw2))  { attachTableRow(steps, lines, idx); continue; }
 
         if (isStep(cur2)) {
           const st = extractStep(cur2, last);
           last = st.keywordBase;
           steps.push(st);
-          i++; continue;
+          idx.i++; continue;
         }
 
-        i++;
+        idx.i++;
       }
 
       const effectiveTags = [...(featureTags || []), ...(ruleTags || []), ...(scTags || [])];
@@ -260,7 +265,7 @@ function parseFeatureFile(text, filename) {
       continue;
     }
 
-    i++;
+    idx.i++;
   }
 
   return { feature, scenarios };
@@ -606,12 +611,12 @@ async function writeXlsx(fileRowsMap, outFile) {
       }
 
       XLSX.writeFile(wb, outFile);
-      console.warn('Note: fallback ke "xlsx"; autofit terbatas.');
+      printWarn('Note: fallback ke "xlsx"; autofit terbatas.');
       return true;
 
     } catch (err) {
-      console.error('Gagal menulis .xlsx. Install "exceljs" (disarankan) atau "xlsx".');
-      console.error(err.message);
+      printError('Gagal menulis .xlsx. Install "exceljs" (disarankan) atau "xlsx".');
+      printError(err.message);
       return false;
     }
   }
@@ -624,7 +629,7 @@ async function writeXlsx(fileRowsMap, outFile) {
 
   const inputs = readAllFeatures(inputPath);
   if (inputs.length === 0) {
-    console.error('No .feature files found.');
+    printError('No .feature files found.');
     process.exit(1);
   }
 
@@ -654,11 +659,9 @@ async function writeXlsx(fileRowsMap, outFile) {
     fileRowsMap.push({ sheetName: name, rows });
   }
 
-  // Selalu taruh hasil di folder output-testcase-api
+  // Selalu taruh hasil di folder outputs/testcase-api
   const finalOutFile = resolveOutFileName(outPath);
 
   const ok = await writeXlsx(fileRowsMap, finalOutFile);
   if (!ok) process.exit(1);
-
-  console.log(`Wrote Excel (${fileRowsMap.length} sheet): ${finalOutFile}`);
 })();
